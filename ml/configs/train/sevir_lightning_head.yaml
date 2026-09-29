@@ -1,0 +1,18 @@
+# Stage (c) on SEVIR/GLM: train only the lightning head on top of the SEVIR-pretrained model.
+# (Use configs/train/lightning_head.yaml once Indian lightning data exists.)
+defaults:
+  data: sevir
+  model: [simvp, lightning_head]
+  eval: default
+train:
+  stage: lightning_head
+  trainable: lightning_head
+  init_from: artifacts/models/nowcast/latest
+  max_epochs: 8
+  lr: 1.0e-3
+  precision: 16-mixed
+  output_dir: runs/sevir_lightning_head
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}
+loss:
+  refl_weight: 0.0
+  ltg_weight: 1.0

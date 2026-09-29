@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -146,7 +147,7 @@ def zarr_event_dataset(
     import xarray as xr
 
     n_times = [xr.open_zarr(str(p), consolidated=None).sizes["time"] for p in paths]
-    openers = [(lambda p=p: Event.open(p, channels)) for p in paths]
+    openers = [partial(Event.open, p, channels) for p in paths]
     return EventWindowDataset(
         openers, spec, stride=stride, transform=transform, seed=seed, n_times=n_times
     )

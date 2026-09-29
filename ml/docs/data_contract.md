@@ -62,7 +62,7 @@ Recommended chunking: `x` chunks of `(1, n_channel, y, x)` (one frame per chunk)
 | `tir2_bt` | satellite | K | 150 – 340 | INSAT TIR2 (12.0 µm) brightness temperature |  |
 | `wv_bt` | satellite | K | 150 – 300 | INSAT WV (6.8 µm) brightness temperature | yes |
 | `mir_bt` | satellite | K | 150 – 360 | INSAT MIR (3.9 µm) brightness temperature |  |
-| `tir1_cooling` | satellite | K/10min | -60 – 60 | TIR1 BT change over the previous 10 min | yes |
+| `tir1_cooling` | satellite | K/10min | -100 – 100 | TIR1 BT change over the previous 10 min | yes |
 | `tir1_minus_wv` | satellite | K | -40 – 100 | TIR1 minus WV BT difference | yes |
 | `flash_density` | lightning | flashes/km2/10min | 0 – 100 | Lightning flash density | yes |
 | `cape` | nwp | J/kg | 0 – 10000 | Convective available potential energy |  |

@@ -108,16 +108,26 @@ def test_fake_sevir_event(tmp_path):
 
 @pytest.mark.sevir
 def test_real_sevir_lightning_colocated_with_vil():
-    """Checks orientation assumptions on real data: flashes should sit on high VIL."""
-    root = Path(os.environ.get("SEVIR_ROOT", "data/sevir"))
-    if not (root / "CATALOG.csv").exists():
+    """Orientation check on real downloaded events: flashes must sit on strong echoes.
+
+    Run with: pytest -m sevir  (needs scripts/download_sevir_subset.py output in data/sevir_raw)
+    """
+    from scipy.ndimage import maximum_filter
+
+    from nowcast_ml.data.sevir import sevir_event_from_arrays
+
+    raw = Path(
+        os.environ.get("SEVIR_RAW", Path(__file__).resolve().parents[2] / "data" / "sevir_raw")
+    )
+    if not (raw / "catalog.csv").exists():
         pytest.skip("SEVIR subset not downloaded")
-    entries = read_catalog(root, require_lightning=True)[:20]
-    hits, total = 0, 0
-    for e in entries:
-        ev = Event(load_sevir_event(root, e), list(ch.ALL_CHANNELS))
-        z = np.nan_to_num(ev.ds["x"].sel(channel="maxz").values)
-        occ = ev.lightning_occurrence
-        hits += int((z[occ] > 30).sum())
-        total += int(occ.sum())
-    assert total > 0 and hits / total > 0.5
+    entries = {e.event_id: e for e in read_catalog(raw, "catalog.csv", require_lightning=True)}
+    hits = total = 0
+    for p in sorted(raw.glob("*.npz"))[:20]:
+        a = np.load(p)
+        ds = sevir_event_from_arrays(entries[p.stem], a["vil"], a["ir107"], a["ir069"], a["lght"])
+        z = maximum_filter(np.nan_to_num(ds["x"].sel(channel="maxz").values), size=(1, 3, 3))
+        fd = np.nan_to_num(ds["x"].sel(channel="flash_density").values)
+        hits += int(((fd > 0) & (z >= 30)).sum())
+        total += int((fd > 0).sum())
+    assert total > 0 and hits / total > 0.8, hits / max(total, 1)

@@ -7,11 +7,14 @@ venv:
 	uv venv --python 3.11 .venv
 
 # macOS: pysteps needs OpenMP (brew install libomp); scripts/cc_openmp.sh maps -fopenmp for Apple clang.
-# Python skips .pth files carrying the macOS "hidden" flag, which breaks the editable install; clear it.
+# Python skips .pth files carrying the macOS "hidden" flag, which some macOS setups re-apply at random;
+# clear it, and also add src/ via the venv's sitecustomize.py, which is not affected by the flag.
 install:
 	@if [ "$$(uname)" = "Darwin" ]; then \
 		CC=$(CURDIR)/scripts/cc_openmp.sh LDSHARED="$(CURDIR)/scripts/cc_openmp.sh -bundle -undefined dynamic_lookup" \
-		$(PIP) install --python $(PY) -e ".[dev]" && chflags nohidden $$($(PY) -c "import site;print(site.getsitepackages()[0])")/*.pth; \
+		$(PIP) install --python $(PY) -e ".[dev]" && SP=$$($(PY) -c "import site;print(site.getsitepackages()[0])") && \
+		chflags nohidden $$SP/*.pth && \
+		printf 'import sys\nif "%s" not in sys.path:\n    sys.path.insert(0, "%s")\n' "$(CURDIR)/src" "$(CURDIR)/src" > $$SP/sitecustomize.py; \
 	else $(PIP) install --python $(PY) -e ".[dev]"; fi
 
 test:

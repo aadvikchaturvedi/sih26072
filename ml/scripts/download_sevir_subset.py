@@ -1,103 +1,170 @@
 #!/usr/bin/env python
-"""Download a small SEVIR subset from the public AWS bucket (anonymous, s3://sevir).
+"""Download a SEVIR storm-event subset from the public AWS bucket (anonymous).
 
-Full SEVIR files are multi-GB; this reads only the selected events' slices over S3
-(h5py on an s3fs file object) and writes compact local HDF5 files plus a rewritten
-CATALOG.csv that ``nowcast_ml.data.sevir`` can read directly.
+SEVIR files are multi-GB and store each image type as one contiguous,
+uncompressed HDF5 dataset (N, H, W, 49). Instead of downloading whole files,
+this script reads each file's HDF5 metadata once (dataset byte offsets), then
+fetches only the selected events with parallel HTTP range requests and saves
+one compressed ``<id>.npz`` per event (raw SEVIR units), plus ``catalog.csv``.
 
     pip install -e ".[sevir]"
-    python scripts/download_sevir_subset.py --out data/sevir --n-events 200 --seed 0
+    python scripts/download_sevir_subset.py --out data/sevir_raw --n-events 600 --workers 8
 
-Needs network access; nothing in the test suite calls it.
+Resumable: events already on disk are skipped. Convert to contract Zarr stores
+with ``scripts/sevir_to_zarr.py``. Needs network access; tests never call it.
 """
 
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-BUCKET = "sevir"
+BUCKET_URL = "https://sevir.s3.us-west-2.amazonaws.com"
 TYPES = ("vil", "ir107", "ir069", "lght")
+DEFAULT_EVENT_TYPES = [
+    "Thunderstorm Wind",
+    "Hail",
+    "Heavy Rain",
+    "Tornado",
+    "Lightning",
+    "Funnel Cloud",
+]
+
+
+def _range(url: str, start: int, nbytes: int, retries: int = 5) -> bytes:
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                url, headers={"Range": f"bytes={start}-{start + nbytes - 1}"}
+            )
+            with urllib.request.urlopen(req, timeout=300) as r:
+                data = r.read()
+            if len(data) != nbytes:
+                raise OSError(f"short read {len(data)} != {nbytes}")
+            return data
+        except Exception:  # noqa: BLE001 - retry any network error
+            if attempt == retries - 1:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("unreachable")
+
+
+def _file_layout(fs, file_name: str, img_type: str, ids: list[str] | None = None) -> dict:
+    """Byte offset/shape/dtype of the image dataset, or of each lightning dataset in ``ids``."""
+    import h5py
+
+    with fs.open(f"sevir/data/{file_name}", "rb", block_size=2**16) as fo, h5py.File(fo, "r") as h:
+        if img_type != "lght":
+            d = h[img_type]
+            if d.chunks is not None or d.compression is not None:
+                raise RuntimeError(
+                    f"{file_name}: dataset is chunked/compressed; range reads unsupported"
+                )
+            return {"offset": d.id.get_offset(), "shape": d.shape, "dtype": d.dtype.str}
+        out = {}
+        for i in ids or []:
+            if i in h:
+                d = h[i]
+                out[i] = {"offset": d.id.get_offset(), "shape": d.shape, "dtype": d.dtype.str}
+        return out
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--out", default="data/sevir")
-    ap.add_argument("--n-events", type=int, default=100)
+    ap.add_argument("--out", default="data/sevir_raw")
+    ap.add_argument("--n-events", type=int, default=600)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--workers", type=int, default=8)
     ap.add_argument(
-        "--event-types",
-        nargs="*",
-        default=["Thunderstorm Wind", "Hail", "Heavy Rain", "Tornado"],
-        help="NOAA storm-event types to keep (catalog column event_type)",
+        "--min-flashes", type=int, default=1, help="require at least this many GLM flashes"
     )
+    ap.add_argument("--event-types", nargs="*", default=DEFAULT_EVENT_TYPES)
     args = ap.parse_args(argv)
 
-    import h5py
     import s3fs
 
     fs = s3fs.S3FileSystem(anon=True)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    print("reading catalog ...")
-    with fs.open(f"{BUCKET}/CATALOG.csv") as f:
+    print("reading catalog ...", flush=True)
+    with fs.open("sevir/CATALOG.csv") as f:
         cat = pd.read_csv(f, low_memory=False)
-    cat = cat[cat["event_id"].notna()]
+    cat = cat[cat["event_id"].notna() & cat["img_type"].isin(TYPES)]
     if args.event_types:
         cat = cat[cat["event_type"].isin(args.event_types)]
     have = cat.groupby("id")["img_type"].apply(set)
     ids = sorted(i for i, s in have.items() if set(TYPES) <= s)
+    lmax = cat[cat.img_type == "lght"].set_index("id")["data_max"]
+    ids = [i for i in ids if lmax.get(i, 0) >= args.min_flashes]
     rng = np.random.default_rng(args.seed)
     ids = sorted(rng.choice(ids, size=min(args.n_events, len(ids)), replace=False).tolist())
-    sub = cat[cat["id"].isin(ids) & cat["img_type"].isin(TYPES)].copy()
-    print(f"selected {len(ids)} events")
+    sub = cat[cat["id"].isin(ids)].copy()
+    sub.to_csv(out / "catalog.csv", index=False)
+    todo = [i for i in ids if not (out / f"{i}.npz").exists()]
+    print(f"selected {len(ids)} events, {len(todo)} to download", flush=True)
+    if not todo:
+        return
 
-    new_rows = []
-    for img_type in ("vil", "ir107", "ir069"):
-        rows = sub[sub["img_type"] == img_type]
-        by_file = defaultdict(list)
-        for r in rows.itertuples():
-            by_file[r.file_name].append(r)
-        local = out / f"{img_type}_subset.h5"
-        arrays, idlist = [], []
-        for fname, rs in sorted(by_file.items()):
-            print(f"  {img_type}: {fname} ({len(rs)} events)")
-            with fs.open(f"{BUCKET}/data/{fname}", "rb") as fo, h5py.File(fo, "r") as h:
-                for r in sorted(rs, key=lambda r: r.file_index):
-                    arrays.append(h[img_type][int(r.file_index)])
-                    idlist.append(r.id)
-        with h5py.File(local, "w") as h:
-            h.create_dataset(
-                img_type, data=np.stack(arrays), compression="gzip", compression_opts=4
-            )
-            h.create_dataset("id", data=np.array(idlist, dtype="S"))
-        for k, eid in enumerate(idlist):
-            row = rows[rows["id"] == eid].iloc[0].to_dict()
-            row.update(file_name=local.name, file_index=k)
-            new_rows.append(row)
+    # One metadata read per source file.
+    layouts: dict[tuple[str, str], dict] = {}
+    for (t, fn), g in sub[sub["id"].isin(todo)].groupby(["img_type", "file_name"]):
+        t0 = time.time()
+        layouts[(t, fn)] = _file_layout(fs, fn, t, sorted(g["id"]) if t == "lght" else None)
+        print(f"  layout {fn} ({time.time() - t0:.0f}s)", flush=True)
 
-    lrows = sub[sub["img_type"] == "lght"]
-    local = out / "lght_subset.h5"
-    with h5py.File(local, "w") as hout:
-        for fname, rs in lrows.groupby("file_name"):
-            print(f"  lght: {fname} ({len(rs)} events)")
-            with fs.open(f"{BUCKET}/data/{fname}", "rb") as fo, h5py.File(fo, "r") as h:
-                for r in rs.itertuples():
-                    if r.id in h:
-                        hout.create_dataset(r.id, data=h[r.id][:])
-                    row = r._asdict()
-                    row.pop("Index", None)
-                    row.update(file_name=local.name, file_index=0)
-                    new_rows.append(row)
-    pd.DataFrame(new_rows).to_csv(out / "CATALOG.csv", index=False)
-    print(f"wrote subset to {out}")
+    def fetch(eid: str) -> tuple[str, int]:
+        rows = sub[sub["id"] == eid].set_index("img_type")
+        arrays, nbytes = {}, 0
+        for t in TYPES:
+            r = rows.loc[t]
+            lay = layouts[(t, r.file_name)]
+            url = f"{BUCKET_URL}/data/{r.file_name}"
+            if t == "lght":
+                if eid not in lay:
+                    arrays[t] = np.zeros((0, 5), np.float32)
+                    continue
+                lay = lay[eid]
+                dt = np.dtype(lay["dtype"])
+                n = int(np.prod(lay["shape"])) * dt.itemsize
+                arrays[t] = np.frombuffer(_range(url, lay["offset"], n), dt).reshape(lay["shape"])
+            else:
+                dt = np.dtype(lay["dtype"])
+                per = int(np.prod(lay["shape"][1:])) * dt.itemsize
+                buf = _range(url, lay["offset"] + int(r.file_index) * per, per)
+                arrays[t] = np.frombuffer(buf, dt).reshape(lay["shape"][1:])
+            nbytes += arrays[t].nbytes
+        tmp = out / f".{eid}.tmp.npz"
+        np.savez_compressed(tmp, **arrays)
+        tmp.rename(out / f"{eid}.npz")
+        return eid, nbytes
+
+    t0, done, total = time.time(), 0, 0
+    with ThreadPoolExecutor(args.workers) as ex:
+        for fut in as_completed([ex.submit(fetch, e) for e in todo]):
+            try:
+                _, nb = fut.result()
+            except Exception as e:  # noqa: BLE001 - keep going; rerun resumes
+                print(f"  FAILED: {e}", flush=True)
+                continue
+            done += 1
+            total += nb
+            if done % 10 == 0 or done == len(todo):
+                el = time.time() - t0
+                print(
+                    f"  {done}/{len(todo)} events, {total / 1e9:.2f} GB, {total / el / 1e6:.2f} MB/s, "
+                    f"eta {(len(todo) - done) * el / done / 60:.0f} min",
+                    flush=True,
+                )
+    print(f"done: {out}", flush=True)
 
 
 if __name__ == "__main__":

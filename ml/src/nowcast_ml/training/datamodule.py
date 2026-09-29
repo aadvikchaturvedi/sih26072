@@ -6,6 +6,7 @@ from ``data.norm_stats`` or fitted on the *train* split only.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import lightning as L
@@ -33,7 +34,7 @@ class EventSources:
         self.openers: dict[str, object] = {}
         self.n_times: dict[str, int] = {}
         random_window = False
-        if d.source == "sevir":
+        if d.source == "sevir" and not d.events_dir:
             from nowcast_ml.data.sevir import read_catalog, sevir_event_openers, sevir_n_frames
 
             entries = read_catalog(d.sevir.root, d.sevir.catalog)
@@ -49,7 +50,9 @@ class EventSources:
             import xarray as xr
 
             for p in list_event_paths(d.events_dir):
-                self.openers[p.stem] = lambda p=p: Event.open(p, self.channels)
+                self.openers[p.stem] = partial(
+                    Event.open, p, self.channels
+                )  # picklable for workers
                 self.n_times[p.stem] = xr.open_zarr(str(p), consolidated=None).sizes["time"]
         elif d.source == "synthetic":
             s = d.synthetic

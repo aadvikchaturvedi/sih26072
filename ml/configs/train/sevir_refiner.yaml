@@ -1,0 +1,14 @@
+# Stage (e) on SEVIR: diffusion residual refiner on top of the frozen, calibrated SEVIR model.
+defaults:
+  data: sevir
+  model: [simvp, lightning_head, refiner]
+  eval: default
+train:
+  stage: refiner
+  init_from: artifacts/models/nowcast/latest
+  max_epochs: 15
+  lr: 2.0e-4
+  weight_decay: 0.0
+  precision: 16-mixed
+  output_dir: runs/sevir_refiner
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}
