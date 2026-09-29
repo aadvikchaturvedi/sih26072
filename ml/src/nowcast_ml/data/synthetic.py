@@ -131,14 +131,18 @@ def generate_event(
     flash_density = (counts / px_area).astype(np.float64)
     ti, yi, xi = np.nonzero(counts)
     reps = counts[ti, yi, xi]
-    flashes = np.stack(
-        [
-            np.repeat(ti, reps).astype(float),
-            np.repeat(yi, reps) + r.uniform(-0.5, 0.5, reps.sum()),
-            np.repeat(xi, reps) + r.uniform(-0.5, 0.5, reps.sum()),
-        ],
-        axis=1,
-    ) if reps.sum() else np.zeros((0, 3))
+    flashes = (
+        np.stack(
+            [
+                np.repeat(ti, reps).astype(float),
+                np.repeat(yi, reps) + r.uniform(-0.5, 0.5, reps.sum()),
+                np.repeat(xi, reps) + r.uniform(-0.5, 0.5, reps.sum()),
+            ],
+            axis=1,
+        )
+        if reps.sum()
+        else np.zeros((0, 3))
+    )
 
     # NWP environment: smooth, slowly varying.
     base = _smooth_field(r, h, w, scale=size * 1.5)
@@ -198,3 +202,49 @@ def generate_event(
 
 def generate_events(n: int, seed: int = 0, **kwargs) -> list[SyntheticEvent]:
     return [generate_event(seed * 100_003 + i, **kwargs) for i in range(n)]
+
+
+def to_dataset(ev: SyntheticEvent, include_flash_points: bool = True):
+    """Convert to a contract-compliant ``xarray.Dataset`` (see ``data/schema.py``)."""
+    from scipy.ndimage import map_coordinates
+
+    from nowcast_ml.data.schema import build_event_dataset
+
+    x = np.stack([ev.fields[n] for n in ch.ALL_CHANNELS], axis=1)
+    flashes = None
+    if include_flash_points:
+        r = np.random.default_rng(ev.meta.get("seed", 0) + 1)
+        f = ev.flashes
+        # Flash density at frame t counts flashes in (t - 10 min, t].
+        offs = r.uniform(0.0, 1.0, len(f)) * 600.0
+        ft = ev.times.values[f[:, 0].astype(int)] - (offs * 1e9).astype("timedelta64[ns]")
+        coords = np.stack([f[:, 1], f[:, 2]])
+        fla = map_coordinates(ev.lat, coords, order=1, mode="nearest")
+        flo = map_coordinates(ev.lon, coords, order=1, mode="nearest")
+        flashes = (ft, fla, flo)
+    return build_event_dataset(
+        x=x,
+        channels=list(ch.ALL_CHANNELS),
+        times=ev.times,
+        lat=ev.lat,
+        lon=ev.lon,
+        missing=ev.missing,
+        event_id=ev.event_id,
+        grid_spacing_km=ev.grid_spacing_km,
+        flashes=flashes,
+        attrs={"source": "synthetic", "motion_px_dy_dx": list(ev.motion_px)},
+    )
+
+
+def write_events(out_dir, n_events: int, seed: int = 0, **kwargs) -> list:
+    """Write ``n_events`` synthetic event stores to ``out_dir/<event_id>.zarr``."""
+    from pathlib import Path
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for ev in generate_events(n_events, seed=seed, **kwargs):
+        p = out / f"{ev.event_id}.zarr"
+        to_dataset(ev).to_zarr(p, mode="w", consolidated=True)
+        paths.append(p)
+    return paths
