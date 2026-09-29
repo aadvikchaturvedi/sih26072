@@ -271,3 +271,31 @@ def build_event_dataset(
         ds["flash_lon"] = ("flash", np.asarray(flo, dtype=np.float64))
     ds[X_VAR].attrs["units"] = "see channels.py"
     return ds
+
+
+def main(argv: list[str] | None = None) -> None:
+    """``nowcast-validate``: check event stores against the input contract (exit 1 if any fail)."""
+    import argparse
+    import sys
+
+    ap = argparse.ArgumentParser(prog="nowcast-validate", description="Validate event Zarr stores.")
+    ap.add_argument("paths", nargs="+", help="event .zarr stores (or directories containing them)")
+    ap.add_argument("--grid-spacing-km", type=float, default=2.0)
+    ap.add_argument(
+        "--no-values", action="store_true", help="skip value checks (faster on big stores)"
+    )
+    args = ap.parse_args(argv)
+    stores: list[Path] = []
+    for p in map(Path, args.paths):
+        stores += sorted(q for q in p.glob("*.zarr")) if p.is_dir() and p.suffix != ".zarr" else [p]
+    bad = 0
+    for s in stores:
+        problems = validate_event(
+            s, expected_spacing_km=args.grid_spacing_km, check_values=not args.no_values
+        )
+        print(f"{'OK  ' if not problems else 'FAIL'} {s}")
+        for pr in problems:
+            print(f"     - {pr}")
+        bad += bool(problems)
+    print(f"{len(stores) - bad}/{len(stores)} valid")
+    sys.exit(1 if bad else 0)

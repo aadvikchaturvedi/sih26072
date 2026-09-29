@@ -7,7 +7,7 @@ name = "nowcast_ml"
 version = "0.1.0"
 description = "Thunderstorm & lightning nowcasting ML package (SIH 2026, PS 26072)"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "torch==2.14.0",
     "lightning==2.6.6",
@@ -38,6 +38,7 @@ nowcast-calibrate = "nowcast_ml.calibration.fit_cli:main"
 nowcast-eval = "nowcast_ml.evaluation.evaluate:main"
 nowcast-export = "nowcast_ml.inference.export:main"
 nowcast-predict = "nowcast_ml.inference.predict_cli:main"
+nowcast-validate = "nowcast_ml.data.schema:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

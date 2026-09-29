@@ -196,3 +196,27 @@ Each version lives in `artifacts/models/<name>/<version>/`, where version = `vYY
 - **Q1: git.** `sih2/` isn't a repo. I propose running `git init` at `sih2/` (repo root) and committing only `ml/`. The `.git/` directory is repo metadata, not code, so this doesn't break "no code outside ml/". The alternative is `git init` inside `ml/`.
 - **Q2: Python.** Is it OK to create `ml/.venv` with a uv-managed Python 3.11? The alternative is running on the installed 3.13, but some pinned deps (for example pysteps wheels) are less certain there.
 - **Q3: Channel masking granularity.** I'm using per-channel availability masks (§2.1), a superset of per-group masks. Is that OK?
+
+## 7. As built (updated after M8)
+
+Changes from the plan above, with reasons:
+
+- **Decisions taken:** git repo at `sih2/` (only `ml/` committed); `ml/.venv` via uv with Python 3.11;
+  per-channel availability masks.
+- **`training/callbacks.py` not created.** The freeze/unfreeze schedule is ~15 lines in
+  `lit_module.py` (`backbone_frozen`, `on_train_epoch_start`), including putting frozen BatchNorm
+  layers in eval mode. A separate callback added indirection for no benefit.
+- **Added `data/event.py`.** It is the single place where a contract Dataset becomes model arrays
+  (channel reorder, availability, lightning occurrence), shared by training, eval and Predictor.
+- **Added `inference/core.py` (`ModelRunner`).** It normalizes, pads, runs the network, denormalizes
+  and calibrates. Evaluation and `Predictor` use the same code path, so eval scores exactly what the
+  backend serves.
+- **Calibration is per mode.** `calibrator.pkl` holds isotonic curves per (mode, lead), because
+  satellite-only probabilities are calibrated differently. Curves are stored as arrays, so the pickle
+  does not depend on the scikit-learn version.
+- **Added `nowcast-validate`** (in `data/schema.py`) so the data team can check stores without Python.
+- **ONNX** uses the TorchScript-based exporter (`dynamo=False`). The dynamo exporter needs `onnxscript`
+  and is only tried as a fallback when that is installed.
+- **Python range relaxed to `>=3.11,<3.13`.** Colab ships 3.12, and the pinned set resolves there
+  (checked with `uv pip compile --python-version 3.12 --python-platform x86_64-manylinux_2_28`).
+- **STEPS deterministic output** is the ensemble mean in rain-rate space. The mean in dBZ collapsed peaks.
