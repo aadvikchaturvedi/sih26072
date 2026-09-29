@@ -1,0 +1,18 @@
+# Stage (b): fine-tune on Indian events; backbone frozen for N epochs then unfrozen.
+defaults:
+  data: india
+  model: [simvp, lightning_head]
+  eval: default
+train:
+  stage: finetune
+  init_from: artifacts/models/nowcast/latest   # or a .ckpt from stage (a)
+  max_epochs: 20
+  freeze_backbone_epochs: 5
+  lr: 5.0e-4
+  unfreeze_lr_factor: 0.1
+  precision: 16-mixed
+  output_dir: runs/finetune_india
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}
+loss:
+  refl_weight: 1.0
+  ltg_weight: 0.5

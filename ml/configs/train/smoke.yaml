@@ -1,0 +1,25 @@
+# Tiny CPU run on synthetic data (tests, `make e2e`). Not for skill.
+defaults:
+  data: synthetic
+  model: [simvp, lightning_head]
+  eval: default
+data:
+  batch_size: 4
+model:
+  hid_s: 16
+  hid_t: 32
+  n_s: 2
+  n_t: 2
+  drop_path: 0.0
+  lightning_head: {enabled: true, hidden: 16}
+train:
+  stage: pretrain
+  max_epochs: 3
+  lr: 3.0e-3
+  precision: "32"
+  accelerator: cpu
+  output_dir: runs/smoke
+  log_every_n_steps: 5
+eval:
+  steps_members: 3
+  sample_stride: 6

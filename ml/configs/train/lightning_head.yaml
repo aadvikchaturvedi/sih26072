@@ -1,0 +1,19 @@
+# Stage (c): train only the lightning head (focal loss) on top of the fine-tuned model.
+defaults:
+  data: india
+  model: [simvp, lightning_head]
+  eval: default
+train:
+  stage: lightning_head
+  trainable: lightning_head
+  init_from: artifacts/models/nowcast/latest
+  max_epochs: 10
+  lr: 1.0e-3
+  precision: 16-mixed
+  output_dir: runs/lightning_head
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}
+loss:
+  refl_weight: 0.0
+  ltg_weight: 1.0
+  focal_alpha: 0.25
+  focal_gamma: 2.0

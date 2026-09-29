@@ -1,0 +1,20 @@
+# Synthetic storm blobs written as contract-valid event Zarrs (scripts/make_synthetic_events.py),
+# or generated in memory when events_dir is null.
+source: synthetic
+events_dir: null
+grid_spacing_km: 2.0
+t_in: 7
+t_out: 12
+step_minutes: 10
+batch_size: 8
+num_workers: 0
+crop: null
+sample_stride: 2
+synthetic:
+  n_events: 24
+  size: 64
+  n_frames: 30
+  n_storms: [1, 4]
+  speed_px: [0.5, 2.5]
+  radar_missing_prob: 0.1
+  seed: 0

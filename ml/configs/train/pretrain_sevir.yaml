@@ -1,0 +1,19 @@
+# Stage (a): pretrain on SEVIR. Colab T4: batch 16 @128^2 with 16-mixed fits in ~10 GB.
+defaults:
+  data: sevir
+  model: [simvp, lightning_head]
+  eval: default
+train:
+  stage: pretrain
+  max_epochs: 30
+  lr: 1.0e-3
+  weight_decay: 0.05
+  precision: 16-mixed
+  accumulate_grad_batches: 1
+  output_dir: runs/pretrain_sevir
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}
+loss:
+  refl_weight: 1.0
+  ltg_weight: 0.5
+registry:
+  save: true

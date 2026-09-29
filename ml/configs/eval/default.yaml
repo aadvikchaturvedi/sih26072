@@ -1,0 +1,8 @@
+thresholds_dbz: [20.0, 35.0, 45.0]
+fss_threshold_dbz: 35.0
+fss_scales_px: [1, 5, 11]
+reliability_bins: 10
+steps_members: 20
+sample_stride: 3
+max_samples: null
+case_study_index: 0

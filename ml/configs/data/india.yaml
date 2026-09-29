@@ -1,0 +1,17 @@
+# Indian event Zarr stores produced by the data team (see docs/data_contract.md).
+source: india
+events_dir: data/events
+grid_spacing_km: 2.0
+t_in: 7
+t_out: 12
+step_minutes: 10
+crop: 128           # random 128x128 training crops (256 km); full domain at eval/inference
+sample_stride: 1
+batch_size: 8
+num_workers: 2
+norm_stats: null    # fitted on the train split when null
+splits:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 0

@@ -1,0 +1,18 @@
+# SEVIR pretraining data (scripts/download_sevir_subset.py). 5-min frames subsampled to 10 min.
+source: sevir
+# channels: all 14 (default). Channels SEVIR lacks are marked unavailable, so the
+# pretrained checkpoint has the same input layout as the India fine-tune.
+grid_spacing_km: 3.0  # 384 km domain resampled to 128 px
+t_in: 7
+t_out: 12
+step_minutes: 10
+crop: null
+sample_stride: 1
+batch_size: 16
+num_workers: 2
+sevir:
+  root: data/sevir
+  catalog: CATALOG.csv
+  size: 128
+  frame_stride: 2
+  max_events: null

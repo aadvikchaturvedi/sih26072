@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nowcast_ml"
+version = "0.1.0"
+description = "Thunderstorm & lightning nowcasting ML package (SIH 2026, PS 26072)"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch==2.14.0",
+    "lightning==2.6.6",
+    "numpy==2.2.6",
+    "scipy==1.17.1",
+    "pandas==3.0.6",
+    "xarray==2026.7.0",
+    "zarr==2.18.7",
+    "numcodecs==0.15.1",
+    "h5py==3.16.0",
+    "pysteps==1.21.5",
+    "opencv-python-headless==5.0.0.93",
+    "scikit-learn==1.9.1",
+    "pydantic==2.13.5",
+    "omegaconf==2.3.1",
+    "matplotlib==3.11.2",
+]
+
+[project.optional-dependencies]
+onnx = ["onnx==1.23.0", "onnxruntime==1.30.0"]
+wandb = ["wandb==0.30.0"]
+sevir = ["boto3==1.43.104"]
+dev = ["pytest==9.1.1", "ruff==0.16.9", "onnx==1.23.0", "onnxruntime==1.30.0"]
+
+[project.scripts]
+nowcast-train = "nowcast_ml.training.train:main"
+nowcast-calibrate = "nowcast_ml.calibration.fit_cli:main"
+nowcast-eval = "nowcast_ml.evaluation.evaluate:main"
+nowcast-export = "nowcast_ml.inference.export:main"
+nowcast-predict = "nowcast_ml.inference.predict_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -m 'not gpu and not sevir'"
+markers = [
+    "gpu: requires a CUDA GPU (skipped by default)",
+    "sevir: requires downloaded SEVIR files (skipped by default)",
+    "slow: slower integration test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:lightning.*",
+    "ignore::UserWarning:pytorch_lightning.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/*" = ["E", "F"]
