@@ -81,8 +81,9 @@ def calibrate(
     cal.save(target)
     write_json(target.with_name("calibration_report.json"), report)
     if Path(model).suffix != ".ckpt" and out is None:
-        from nowcast_ml.inference.registry import refresh_manifest
+        from nowcast_ml.inference.registry import refresh_manifest, write_model_card
 
+        write_model_card(target.parent)
         refresh_manifest(target.parent)
     log.info("wrote %s", target)
     return {"path": str(target), "report": report}

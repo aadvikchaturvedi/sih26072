@@ -59,3 +59,28 @@ def tiny_cfg(configs_dir):
             "registry.save=false",
         ],
     )
+
+
+@pytest.fixture(scope="session")
+def artifact_root(tiny_cfg, events_dir, tmp_path_factory) -> Path:
+    """Train a tiny model once and save it to a temporary registry; returns <root>/nowcast."""
+    from nowcast_ml.training.train import run
+
+    root = tmp_path_factory.mktemp("registry")
+    cfg = tiny_cfg.model_copy(deep=True)
+    cfg.data.events_dir = str(events_dir)
+    cfg.train.output_dir = str(root / "run")
+    cfg.registry.save = True
+    cfg.registry.root = str(root / "models")
+    run(cfg)
+    return root / "models" / "nowcast"
+
+
+@pytest.fixture()
+def artifact_copy(artifact_root, tmp_path) -> Path:
+    """A private copy of the artifact that a test may modify."""
+    import shutil
+
+    dst = tmp_path / "nowcast"
+    shutil.copytree(artifact_root, dst)
+    return dst

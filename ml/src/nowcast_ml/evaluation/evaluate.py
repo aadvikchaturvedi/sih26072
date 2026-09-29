@@ -251,6 +251,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--out", default="reports/eval")
     ap.add_argument("--device", default="auto")
     ap.add_argument(
+        "--no-artifact-update", action="store_true", help="do not record metrics in the artifact"
+    )
+    ap.add_argument(
         "overrides",
         nargs="*",
         help="config overrides, e.g. eval.sample_stride=1 eval.max_samples=50",
@@ -293,6 +296,10 @@ def main(argv: list[str] | None = None) -> None:
             "synthetic": source == {"synthetic"},
         },
     )
+    if args.model and Path(args.model).suffix != ".ckpt" and not args.no_artifact_update:
+        from nowcast_ml.inference.registry import update_metrics
+
+        update_metrics(args.model, f"eval_{args.split}", res)
     print(f"wrote {args.out}/skill.md ({res['meta']['n_samples']} samples)")
 
 
