@@ -26,8 +26,9 @@ class ModelRunner:
     channels: list[str]
     device: torch.device
     spatial_factor: int = 4
-    calibrator: object | None = None  # has .apply(probs (n_leads, H, W)) -> probs
+    calibrator: object | None = None  # IsotonicCalibrator: .apply(probs (n_leads, H, W), mode)
     name: str = "model"
+    min_radar_coverage: float = 0.05
 
     def forecast_batch(self, x: np.ndarray, avail: np.ndarray, satellite_only: bool = False):
         """(B, T, C, H, W) physical + avail -> (refl dBZ (B, T_out, H, W), raw probs (B, n_ltg, H, W))."""
@@ -51,12 +52,18 @@ class ModelRunner:
         dbz = self.norm_stats.denormalize_channel(ch.TARGET_CHANNEL, refl).clamp(0.0, 80.0).numpy()
         return dbz, torch.sigmoid(ltg).numpy()
 
-    def calibrate(self, probs: np.ndarray) -> np.ndarray:
-        return probs if self.calibrator is None else self.calibrator.apply(probs)
+    def calibrate(self, probs: np.ndarray, mode: str) -> np.ndarray:
+        return probs if self.calibrator is None else self.calibrator.apply(probs, mode)
+
+    def mode_for(self, avail: np.ndarray, satellite_only: bool) -> str:
+        if satellite_only:
+            return "satellite_only"
+        return detect_mode(avail, self.channels, self.min_radar_coverage)
 
     def forecast(self, inp: ForecastInput, satellite_only: bool = False) -> ForecastArrays:
-        dbz, p = self.forecast_batch(inp.x[None], inp.avail[None], satellite_only)
-        return ForecastArrays(reflectivity=dbz[0], lightning=self.calibrate(p[0]))
+        mode = self.mode_for(inp.avail, satellite_only)
+        dbz, p = self.forecast_batch(inp.x[None], inp.avail[None], mode == "satellite_only")
+        return ForecastArrays(reflectivity=dbz[0], lightning=self.calibrate(p[0], mode))
 
 
 class ModelForecaster:

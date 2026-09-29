@@ -23,6 +23,11 @@ def load_runner(path: str | Path, device: str = "auto") -> tuple[ModelRunner, Co
         runner = ModelRunner(
             model, lit.norm_stats, lit.channels, dev, model.spatial_factor, name=p.stem
         )
+        cal_file = p.parent.parent / "calibrator.pkl"
+        if cal_file.exists():
+            from nowcast_ml.calibration.isotonic import IsotonicCalibrator
+
+            runner.calibrator = IsotonicCalibrator.load(cal_file)
         splits_file = p.parent.parent / "splits.json"
         splits = read_json(splits_file) if splits_file.exists() else None
         return runner, lit.cfg, splits
