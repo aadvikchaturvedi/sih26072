@@ -25,13 +25,21 @@ GRID = "#e4e3df"
 NEUTRAL = "#8a8984"
 # Validated categorical order (blue, orange, aqua, yellow, magenta, ...); fixed per forecaster.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
-ORDER = ["model_full", "model_satellite_only", "extrapolation", "steps", "persistence"]
+ORDER = [
+    "model_full",
+    "model_satellite_only",
+    "extrapolation",
+    "steps",
+    "persistence",
+    "model_ensemble",
+]
 LABELS = {
     "model_full": "Model (full)",
     "model_satellite_only": "Model (satellite-only)",
     "extrapolation": "Extrapolation",
     "steps": "STEPS ensemble mean",
     "persistence": "Persistence",
+    "model_ensemble": "Model ensemble mean (refiner)",
 }
 # One-hue sequential ramps; lowest bin recedes to the surface ("no echo").
 BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
@@ -241,6 +249,28 @@ def skill_markdown(results: dict, has_case: bool) -> str:
             + " | ".join(_fmt(f[s][i]) for s in scales for i in li)
             + " |"
         )
+    out += [
+        "",
+        "## CRPS (dBZ, lower is better)",
+        "",
+        "Ensembles (STEPS, model ensemble) are scored with the ensemble CRPS; deterministic forecasts "
+        "reduce to mean absolute error. Spread/skill ≈ 1 means the ensemble spread matches its error.",
+        "",
+        "| Forecaster | "
+        + " | ".join(f"CRPS +{L}" for L in show)
+        + " | "
+        + " | ".join(f"spread/skill +{L}" for L in show)
+        + " |",
+        "|" + "---|" * (1 + 2 * len(show)),
+    ]
+    for n in names:
+        r = fc[n]["reflectivity"]
+        crps = r.get("crps_dbz")
+        ssr = r.get("spread_skill_ratio")
+        cells = [_fmt(crps[i], 2) if crps else "–" for i in li] + [
+            _fmt(ssr[i], 2) if ssr else "–" for i in li
+        ]
+        out.append(f"| {LABELS.get(n, n)} | " + " | ".join(cells) + " |")
     out += ["", "## Lightning (P ≥1 flash within 10 km)", ""]
     out += [
         "| Forecaster | Lead | Brier | BSS vs climatology | BSS vs persists | ROC-AUC | base rate |",

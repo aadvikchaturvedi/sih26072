@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= uv pip
 
-.PHONY: venv install test test-all lint format e2e clean
+.PHONY: venv install test test-all lint format e2e e2e-ensemble clean
 
 venv:
 	uv venv --python 3.11 .venv
@@ -37,6 +37,11 @@ e2e:
 	.venv/bin/nowcast-eval --model $(E2E)/artifacts/nowcast/latest --events $(E2E)/events --split test --baselines all --out $(E2E)/reports
 	.venv/bin/nowcast-export --model $(E2E)/artifacts/nowcast/latest
 	.venv/bin/nowcast-predict --model $(E2E)/artifacts/nowcast/latest --event $$(ls -d $(E2E)/events/*.zarr | head -1) --t0 auto --out $(E2E)/forecast.zarr
+
+# Optional stage (e): diffusion refiner on top of the e2e model, then a 5-member ensemble forecast.
+e2e-ensemble: e2e
+	.venv/bin/nowcast-train -c configs/train/smoke.yaml train.stage=refiner train.init_from=$(E2E)/artifacts/nowcast/latest data.events_dir=$(E2E)/events train.output_dir=$(E2E)/refiner registry.root=$(E2E)/artifacts model.refiner=diffusion model.refiner_params.base_channels=16 train.max_epochs=2
+	.venv/bin/nowcast-predict --model $(E2E)/artifacts/nowcast/latest --event $$(ls -d $(E2E)/events/*.zarr | head -1) --t0 auto --members 5 --out $(E2E)/forecast_ensemble.zarr
 
 clean:
 	rm -rf runs reports .pytest_cache .ruff_cache

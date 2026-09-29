@@ -220,3 +220,19 @@ Changes from the plan above, with reasons:
 - **Python range relaxed to `>=3.11,<3.13`.** Colab ships 3.12, and the pinned set resolves there
   (checked with `uv pip compile --python-version 3.12 --python-platform x86_64-manylinux_2_28`).
 - **STEPS deterministic output** is the ensemble mean in rain-rate space. The mean in dBZ collapsed peaks.
+
+## 8. M9: diffusion residual refiner (done)
+
+- `models/refiner/unet.py` holds a small conditional UNet. `models/refiner/diffusion.py` is a DDPM with
+  a cosine schedule and **v-prediction**, sampled with DDIM (eta = 0). With epsilon-prediction the
+  sampled members were unusable (std ~6 around the target), because recovering x0 at high noise
+  divides by sqrt(alpha_bar) ~ 0. v-prediction fixed it.
+- Members = deterministic forecast + sampled residual. They are conditioned on the deterministic
+  forecast and the last input frame (data + availability masks), so satellite-only inputs work too.
+- Stage `refiner` (`configs/train/refiner.yaml`) trains with the base model frozen. The new artifact
+  carries over the base weights, normalization and calibrator, and adds `refiner.pt`.
+- `Predictor.predict(n_members=N, seed=...)` fills `reflectivity_members`, which the output schema
+  already allowed, so the API didn't change. Evaluation adds a `model_ensemble` row, and CRPS and
+  spread/skill for every row.
+- Also fixed in passing: training and validation now pad H/W to the backbone factor, so full-domain
+  validation on India grids whose size isn't a multiple of 4 no longer crashes.

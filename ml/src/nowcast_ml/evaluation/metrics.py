@@ -283,3 +283,22 @@ def high_freq_power_ratio(
     wavelength = grid_spacing_km / np.maximum(k, 1e-9)
     m = (wavelength < max_wavelength_km) & (k > 0)
     return _div(pf[m].sum(), po[m].sum())
+
+
+# ---------------------------------------------------------------- ensembles
+
+
+def crps_ensemble(members: np.ndarray, obs: np.ndarray) -> np.ndarray:
+    """Per-pixel CRPS of an ensemble (M, ...) against ``obs`` (...).
+
+    CRPS = mean_i |X_i - y| - 1/(2 M^2) sum_ij |X_i - X_j|, using the sorted-member
+    identity sum_ij |X_i - X_j| = 2 sum_k (2k - M - 1) X_(k). With M = 1 it is the
+    absolute error, so deterministic forecasts are scored on the same scale.
+    """
+    x = np.sort(np.asarray(members, float), axis=0)
+    M = x.shape[0]
+    y = np.asarray(obs, float)
+    term1 = np.abs(x - y[None]).mean(axis=0)
+    k = np.arange(1, M + 1).reshape((M,) + (1,) * (x.ndim - 1))
+    pair = 2.0 * ((2 * k - M - 1) * x).sum(axis=0)
+    return term1 - pair / (2.0 * M * M)

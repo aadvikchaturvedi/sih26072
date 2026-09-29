@@ -1,0 +1,15 @@
+# Stage (e, optional): train the diffusion residual refiner on top of a frozen, calibrated model.
+# The base model's weights, normalization and calibrator are carried into the new artifact.
+defaults:
+  data: india
+  model: [simvp, lightning_head, refiner]
+  eval: default
+train:
+  stage: refiner
+  init_from: artifacts/models/nowcast/latest
+  max_epochs: 30
+  lr: 2.0e-4
+  weight_decay: 0.0
+  precision: 16-mixed
+  output_dir: runs/refiner
+  modality_dropout: {p_radar: 0.3, p_channel: 0.1}

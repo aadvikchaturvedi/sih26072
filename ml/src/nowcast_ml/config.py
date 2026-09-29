@@ -112,6 +112,16 @@ class LightningHeadConfig(_Base):
     hidden: int = 32
 
 
+class RefinerConfig(_Base):
+    """Diffusion residual refiner (models/refiner/diffusion.py)."""
+
+    base_channels: int = 32
+    channel_mults: list[int] = Field(default_factory=lambda: [1, 2, 2])
+    timesteps: int = 1000
+    sample_steps: int = 20
+    residual_scale: float = 1.0  # residuals are divided by this before diffusion
+
+
 class ModelConfig(_Base):
     name: str = "nowcast"
     backbone: str = "simvp"
@@ -126,6 +136,7 @@ class ModelConfig(_Base):
     drop_path: float = 0.0
     lightning_head: LightningHeadConfig = Field(default_factory=LightningHeadConfig)
     refiner: str | None = None
+    refiner_params: RefinerConfig = Field(default_factory=RefinerConfig)
 
 
 class LossConfig(_Base):
@@ -156,7 +167,7 @@ class WandbConfig(_Base):
 
 
 class TrainConfig(_Base):
-    stage: Literal["pretrain", "finetune", "lightning_head"] = "pretrain"
+    stage: Literal["pretrain", "finetune", "lightning_head", "refiner"] = "pretrain"
     max_epochs: int = 50
     lr: float = 1e-3
     weight_decay: float = 0.05
@@ -191,6 +202,9 @@ class EvalConfig(_Base):
     fss_scales_px: list[int] = Field(default_factory=lambda: [1, 5, 11])
     reliability_bins: int = 10
     steps_members: int = 20
+    ensemble_members: int = (
+        10  # refiner members for the "model_ensemble" row (if the model has one)
+    )
     sample_stride: int = 3
     max_samples: int | None = None
     case_study_index: int = 0

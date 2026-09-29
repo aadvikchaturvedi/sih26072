@@ -4,6 +4,7 @@ Layout::
 
     <root>/<name>/<version>/
         model.pt            state dict (eager weights)
+        refiner.pt          diffusion refiner weights (only if model.refiner == "diffusion")
         model.ts            TorchScript (nowcast-export)
         model.onnx          ONNX (nowcast-export, if export succeeds)
         config.yaml         full training config
@@ -52,6 +53,7 @@ class Artifact:
     norm_stats: NormStats
     state_dict: dict
     calibrator: object | None
+    refiner_state: dict | None
     splits: dict | None
     metrics: dict
     manifest: dict
@@ -131,6 +133,7 @@ def save_artifact(
     splits: dict | None = None,
     train_metrics: dict | None = None,
     calibrator=None,
+    refiner: torch.nn.Module | None = None,
     make_latest: bool = True,
 ) -> Path:
     name = name or cfg.model.name
@@ -145,6 +148,8 @@ def save_artifact(
         n += 1
     d.mkdir(parents=True)
     torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, d / "model.pt")
+    if refiner is not None:
+        torch.save({k: v.detach().cpu() for k, v in refiner.state_dict().items()}, d / "refiner.pt")
     (d / "config.yaml").write_text(cfg_text)
     write_json(
         d / "channels.json",
@@ -235,6 +240,16 @@ def load_artifact(path: str | Path, verify_hashes: bool = True) -> Artifact:
         state = torch.load(d / "model.pt", map_location="cpu", weights_only=True)
     except Exception as e:  # noqa: BLE001
         raise ModelLoadError(f"artifact {d}: cannot read model.pt: {e}") from e
+    refiner_state = None
+    if cfg.model.refiner == "diffusion":
+        if not (d / "refiner.pt").exists():
+            raise ModelLoadError(
+                f"artifact {d}: config uses the diffusion refiner but refiner.pt is missing"
+            )
+        try:
+            refiner_state = torch.load(d / "refiner.pt", map_location="cpu", weights_only=True)
+        except Exception as e:  # noqa: BLE001
+            raise ModelLoadError(f"artifact {d}: cannot read refiner.pt: {e}") from e
     calibrator = None
     if (d / "calibrator.pkl").exists():
         from nowcast_ml.calibration.isotonic import IsotonicCalibrator
@@ -254,6 +269,7 @@ def load_artifact(path: str | Path, verify_hashes: bool = True) -> Artifact:
         norm_stats=stats,
         state_dict=state,
         calibrator=calibrator,
+        refiner_state=refiner_state,
         splits=read_json(d / "splits.json") if (d / "splits.json").exists() else None,
         metrics=read_json(d / "metrics.json") if (d / "metrics.json").exists() else {},
         manifest=manifest,
@@ -309,6 +325,12 @@ def write_model_card(version_dir: str | Path) -> None:
         "",
         f"- Backbone: `{cfg.model.backbone}` (hid_s={cfg.model.hid_s}, hid_t={cfg.model.hid_t}, "
         f"n_s={cfg.model.n_s}, n_t={cfg.model.n_t}); lightning head: {cfg.model.lightning_head.enabled}",
+        f"- Ensemble refiner: `{cfg.model.refiner or 'none'}`"
+        + (
+            f" (DDIM {cfg.model.refiner_params.sample_steps} steps, base {cfg.model.refiner_params.base_channels} ch)"
+            if cfg.model.refiner
+            else ""
+        ),
         f"- Inputs: {cfg.data.t_in} frames × {len(cfg.data.channels)} channels + availability masks; "
         f"outputs {cfg.data.t_out} frames; grid {cfg.data.grid_spacing_km} km",
         f"- Channels: {', '.join(cfg.data.channels)}",
@@ -371,8 +393,9 @@ def write_model_card(version_dir: str | Path) -> None:
     L += [
         "## Known limits",
         "",
-        "- Deterministic forecasts blur with lead time (see the sharpness row in the skill report); "
-        "no ensemble unless a refiner is attached.",
+        "- The deterministic forecast blurs with lead time (see the sharpness row in the skill report). "
+        "Diffusion-refiner members are sharper but their spread is only as good as the training data; "
+        "check CRPS and spread in the skill report.",
         "- SEVIR pretraining maps VIL to an approximate reflectivity (Greene–Clark inversion); intensity "
         "calibration relies on India fine-tuning.",
         "- Satellite-only mode cannot observe precipitation directly; expect lower skill than with radar.",

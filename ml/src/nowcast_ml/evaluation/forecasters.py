@@ -54,10 +54,13 @@ def build_forecasters(
     baselines: list[str],
     steps_members: int = 20,
     satellite_only_row: bool = True,
+    ensemble_members: int = 0,
 ) -> list:
     fs = [make_baseline(k, n_members=steps_members) for k in baselines]
     if runner is not None:
         fs.append(ModelForecaster(runner, satellite_only=False))
         if satellite_only_row:
             fs.append(ModelForecaster(runner, satellite_only=True))
+        if ensemble_members > 0 and runner.refiner is not None:
+            fs.append(ModelForecaster(runner, n_members=ensemble_members))
     return fs

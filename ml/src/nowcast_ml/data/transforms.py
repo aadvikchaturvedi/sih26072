@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from nowcast_ml.data import channels as ch
 
@@ -231,3 +232,14 @@ def random_flip(sample: dict, rng: np.random.Generator) -> dict:
         if k in out:
             out[k] = np.ascontiguousarray(out[k])
     return out
+
+
+def pad_to_multiple(xin: torch.Tensor, factor: int) -> torch.Tensor:
+    """Replicate-pad the last two dims of (B, T, C, H, W) up to a multiple of ``factor``."""
+    B, T, C, H, W = xin.shape
+    ph, pw = (-H) % factor, (-W) % factor
+    if not (ph or pw):
+        return xin
+    return F.pad(xin.reshape(B, T * C, H, W), (0, pw, 0, ph), mode="replicate").reshape(
+        B, T, C, H + ph, W + pw
+    )

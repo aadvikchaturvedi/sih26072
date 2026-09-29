@@ -7,7 +7,13 @@ import torch
 
 from nowcast_ml.config import Config
 from nowcast_ml.data import channels as ch
-from nowcast_ml.data.transforms import ModalityDropout, NormStats, drop_radar, model_input
+from nowcast_ml.data.transforms import (
+    ModalityDropout,
+    NormStats,
+    drop_radar,
+    model_input,
+    pad_to_multiple,
+)
 from nowcast_ml.models.losses import BinaryFocalLoss, IntensityWeightedMSE
 from nowcast_ml.models.nowcast_model import NowcastModel
 
@@ -70,7 +76,10 @@ class NowcastLitModule(L.LightningModule):
         return xin
 
     def forward(self, xin: torch.Tensor):
-        return self.model(xin)
+        """Pads H/W to the backbone factor (full-domain validation) and crops the outputs back."""
+        H, W = xin.shape[-2:]
+        refl, ltg = self.model(pad_to_multiple(xin, self.model.spatial_factor))
+        return refl[..., :H, :W], ltg[..., :H, :W]
 
     def compute_losses(self, batch: dict, refl: torch.Tensor, ltg_logits: torch.Tensor) -> dict:
         y_dbz = batch["y_refl"].float()

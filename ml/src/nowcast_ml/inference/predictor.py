@@ -63,6 +63,7 @@ class ModelInfo:
     lead_minutes: tuple[int, ...]
     lightning_leads_min: tuple[int, ...]
     calibrated: bool
+    has_ensemble: bool
     backend: str
     device: str
 
@@ -75,7 +76,6 @@ class Predictor:
         self.runner = runner
         self.config: Config = artifact.config
         self._backend = backend
-        self._refiner = build_refiner(self.config.model.refiner)
 
     # ------------------------------------------------------------------ load
     @classmethod
@@ -118,6 +118,18 @@ class Predictor:
         elif backend != "eager":
             raise ValueError(f"backend must be 'eager' or 'torchscript', got {backend!r}")
         model = model.to(dev).eval()
+        refiner = None
+        if art.refiner_state is not None:
+            refiner = build_refiner(
+                cfg.model.refiner, cfg.data.t_out, 2 * len(art.channels), cfg.model.refiner_params
+            )
+            try:
+                refiner.load_state_dict(art.refiner_state, strict=True)
+            except RuntimeError as e:
+                raise ModelLoadError(
+                    f"artifact {art.path}: refiner weights do not match config: {e}"
+                ) from e
+            refiner = refiner.to(dev).eval()
         runner = ModelRunner(
             model=model,
             norm_stats=art.norm_stats,
@@ -127,6 +139,7 @@ class Predictor:
             calibrator=art.calibrator,
             name=art.name,
             min_radar_coverage=cfg.inference.satellite_only_radar_coverage,
+            refiner=refiner,
         )
         return cls(art, runner, backend)
 
@@ -142,6 +155,7 @@ class Predictor:
             lead_minutes=tuple(d.lead_minutes),
             lightning_leads_min=tuple(d.lightning_leads_min),
             calibrated=self.artifact.calibrator is not None,
+            has_ensemble=self.runner.refiner is not None,
             backend=self._backend,
             device=str(self.runner.device),
         )
@@ -214,7 +228,12 @@ class Predictor:
 
     # ------------------------------------------------------------------ predict
     def predict(
-        self, inputs: xr.Dataset, t0: datetime | str | pd.Timestamp, *, n_members: int = 0
+        self,
+        inputs: xr.Dataset,
+        t0: datetime | str | pd.Timestamp,
+        *,
+        n_members: int = 0,
+        seed: int | None = 0,
     ) -> xr.Dataset:
         """Nowcast from the ``t_in`` frames ending at ``t0``.
 
@@ -223,7 +242,9 @@ class Predictor:
                 Missing channels / masked regions are allowed; if radar is absent the
                 forecast runs in ``satellite_only`` mode.
             t0: analysis time (UTC; tz-aware datetimes are converted). Must match a frame.
-            n_members: ensemble members to add as ``reflectivity_members`` (needs a refiner).
+            n_members: ensemble members to add as ``reflectivity_members`` (needs a model
+                trained with the diffusion refiner, see ``info.has_ensemble``).
+            seed: seed for the members' initial noise (same seed -> same members; None = random).
 
         Returns:
             Dataset following the output contract (``inference/schema.py``).
@@ -232,16 +253,15 @@ class Predictor:
             InputContractError: inputs or ``t0`` violate the input contract.
             NowcastError: ``n_members > 0`` but the model has no ensemble refiner.
         """
-        if n_members > 0:
-            # The Refiner interface (models/refiner) returns members; NullRefiner returns none.
+        if n_members > 0 and self.runner.refiner is None:
             raise NowcastError(
-                f"n_members={n_members} requested but model has refiner {self._refiner.name!r}, "
-                "which produces no ensemble"
+                f"n_members={n_members} requested but this model has no ensemble refiner "
+                "(train one with configs/train/refiner.yaml)"
             )
         start = time.perf_counter()
         ev, inp, t0_ts = self._prepare(inputs, t0)
         mode = self.runner.mode_for(inp.avail, satellite_only=False)
-        fc = self.runner.forecast(inp)
+        fc = self.runner.forecast(inp, n_members=n_members, seed=seed)
         ms = 1000 * (time.perf_counter() - start)
         return self._wrap(
             fc,
@@ -252,7 +272,11 @@ class Predictor:
             self.artifact.version,
             mode,
             ms,
-            {"calibrated": int(self.artifact.calibrator is not None), "backend": self._backend},
+            {
+                "calibrated": int(self.artifact.calibrator is not None),
+                "backend": self._backend,
+                "n_members": int(n_members),
+            },
         )
 
     def predict_baseline(

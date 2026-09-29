@@ -39,20 +39,25 @@ def _resolve_precision(cfg: Config, accelerator: str) -> str:
     return p
 
 
-def load_init(path: str) -> tuple[dict, NormStats, list[str]]:
-    """Weights, norm stats and channels from a registry artifact dir or a Lightning .ckpt."""
+def load_init(path: str) -> tuple[dict, NormStats, list[str], object | None]:
+    """Weights, norm stats, channels and calibrator (if any) from an artifact dir or a .ckpt."""
     p = Path(path)
     if p.is_dir() or p.name == "latest":
         from nowcast_ml.inference.registry import load_artifact
 
         art = load_artifact(p)
-        return art.state_dict, art.norm_stats, art.channels
+        return art.state_dict, art.norm_stats, art.channels, art.calibrator
     ck = torch.load(p, map_location="cpu", weights_only=False)
     hp = ck["hyper_parameters"]
     sd = {
         k.removeprefix("model."): v for k, v in ck["state_dict"].items() if k.startswith("model.")
     }
-    return sd, NormStats.from_dict(hp["norm_stats"]), list(hp["config"]["data"]["channels"])
+    cal = None
+    if (p.parent.parent / "calibrator.pkl").exists():
+        from nowcast_ml.calibration.isotonic import IsotonicCalibrator
+
+        cal = IsotonicCalibrator.load(p.parent.parent / "calibrator.pkl")
+    return sd, NormStats.from_dict(hp["norm_stats"]), list(hp["config"]["data"]["channels"]), cal
 
 
 def run(cfg: Config) -> dict:
@@ -61,12 +66,21 @@ def run(cfg: Config) -> dict:
     out = Path(cfg.train.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    refiner_stage = cfg.train.stage == "refiner"
+    if refiner_stage:
+        if not cfg.train.init_from:
+            raise ValueError("stage 'refiner' needs train.init_from (a trained nowcast model)")
+        if cfg.model.refiner != "diffusion":
+            cfg = cfg.model_copy(deep=True)
+            cfg.model.refiner = "diffusion"
     init = load_init(cfg.train.init_from) if cfg.train.init_from else None
     if init is not None and init[2] != list(cfg.data.channels):
         raise ValueError(
             f"init_from channels {init[2]} differ from config channels {cfg.data.channels}"
         )
-    stats = init[1] if (init is not None and cfg.train.stage == "lightning_head") else None
+    # Stages that keep the backbone frozen must reuse its normalization.
+    reuse = cfg.train.stage in ("lightning_head", "refiner")
+    stats = init[1] if (init is not None and reuse) else None
 
     dm = NowcastDataModule(cfg, norm_stats=stats)
     dm.setup("fit")
@@ -74,7 +88,12 @@ def run(cfg: Config) -> dict:
     dm.norm_stats.save(out / "norm_stats.json")
     (out / "config.yaml").write_text(dump_config(cfg))
 
-    lit = NowcastLitModule(cfg, dm.norm_stats)
+    lit_cls = NowcastLitModule
+    if refiner_stage:
+        from nowcast_ml.training.refiner_module import RefinerLitModule
+
+        lit_cls = RefinerLitModule
+    lit = lit_cls(cfg, dm.norm_stats)
     if init is not None:
         missing, unexpected = lit.model.load_state_dict(init[0], strict=False)
         if unexpected or (missing and cfg.train.stage != "pretrain"):
@@ -121,7 +140,7 @@ def run(cfg: Config) -> dict:
     best = ckpt.best_model_path or ckpt.last_model_path
     result = {"checkpoint": best, "output_dir": str(out)}
     if best:
-        lit = NowcastLitModule.from_checkpoint(best)
+        lit = lit_cls.from_checkpoint(best)
     result["val_metrics"] = {
         k: float(v) for k, v in trainer.callback_metrics.items() if k.startswith("val/")
     }
@@ -135,6 +154,9 @@ def run(cfg: Config) -> dict:
             root=cfg.registry.root,
             splits=dm.splits,
             train_metrics=result["val_metrics"],
+            # the frozen base model keeps its calibration; other stages must recalibrate
+            calibrator=init[3] if (refiner_stage and init is not None) else None,
+            refiner=lit.refiner if refiner_stage else None,
         )
         result["artifact"] = str(art_dir)
         log.info("saved artifact %s", art_dir)

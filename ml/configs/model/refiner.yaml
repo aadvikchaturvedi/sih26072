@@ -1,0 +1,8 @@
+# Diffusion residual refiner (stage "refiner"); adds ensemble members to Predictor.predict(n_members=N).
+refiner: diffusion
+refiner_params:
+  base_channels: 64
+  channel_mults: [1, 2, 2]
+  timesteps: 1000
+  sample_steps: 20
+  residual_scale: 1.0

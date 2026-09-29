@@ -3,8 +3,9 @@
     nowcast-predict --model artifacts/models/nowcast/latest --event path.zarr \
                     --t0 2026-05-12T10:30Z --out forecast.zarr [--baseline extrapolation]
 
-``--t0 auto`` uses the last frame of the event. Exit code 2 on input-contract
-errors, 3 on model-load errors.
+``--t0 auto`` uses the last frame of the event. ``--members N`` adds refiner
+ensemble members. Exit code 2 on input-contract errors, 3 on model-load errors,
+4 on other nowcast errors (e.g. members requested from a model without a refiner).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 
 import xarray as xr
 
-from nowcast_ml.inference.errors import InputContractError, ModelLoadError
+from nowcast_ml.inference.errors import InputContractError, ModelLoadError, NowcastError
 
 
 def _to_zarr(ds: xr.Dataset, out: str) -> None:
@@ -43,6 +44,9 @@ def main(argv: list[str] | None = None) -> None:
         choices=["persistence", "extrapolation", "steps"],
         help="run a baseline instead",
     )
+    ap.add_argument(
+        "--members", type=int, default=0, help="ensemble members (model needs a refiner)"
+    )
     ap.add_argument("--device", default="auto")
     args = ap.parse_args(argv)
 
@@ -63,10 +67,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.baseline:
             fc = pred.predict_baseline(ds_in, t0, kind=args.baseline)
         else:
-            fc = pred.predict(ds_in, t0)
+            fc = pred.predict(ds_in, t0, n_members=args.members)
     except InputContractError as e:
         print(f"input contract error: {e}", file=sys.stderr)
         sys.exit(2)
+    except NowcastError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(4)
     _to_zarr(fc, args.out)
     a = fc.attrs
     print(

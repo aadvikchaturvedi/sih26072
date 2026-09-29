@@ -38,6 +38,8 @@ class _State:
         self.ff_parts: list[dict] = []
         self.warnings: dict[int, np.ndarray] = {}
         self.sharp: list[float] = []
+        self.crps = np.zeros((n_leads, 2))  # [sum CRPS, n valid pixels]
+        self.spread = np.zeros((n_leads, 2))  # [sum ensemble variance, sum squared error of mean]
         self.ms: list[float] = []
 
 
@@ -73,6 +75,17 @@ class Evaluator:
                 st.fss[li, si] += M.fss_terms(
                     fc.reflectivity[li], y[li], self.cfg.eval.fss_threshold_dbz, sc, v[li]
                 )
+        members = fc.members if fc.members is not None else fc.reflectivity[None]
+        for li in range(len(self.leads)):
+            ok = v[li] & np.isfinite(y[li]) & np.isfinite(members[:, li]).all(axis=0)
+            if ok.any():
+                c = M.crps_ensemble(members[:, li][:, ok], y[li][ok])
+                st.crps[li] += (c.sum(), ok.sum())
+                if members.shape[0] > 1:
+                    st.spread[li] += (
+                        members[:, li][:, ok].var(axis=0, ddof=1).sum(),
+                        ((members[:, li][:, ok].mean(axis=0) - y[li][ok]) ** 2).sum(),
+                    )
         l60 = self.leads.index(60) if 60 in self.leads else len(self.leads) // 2
         if np.isfinite(fc.reflectivity[l60]).all() and v[l60].all():
             st.sharp.append(
@@ -112,6 +125,12 @@ class Evaluator:
                 a, b = st.fss[:, si, 0], st.fss[:, si, 1]
                 refl["fss"][str(s)] = [
                     float(1 - x / y) if y > 0 else float("nan") for x, y in zip(a, b, strict=True)
+                ]
+            n = np.maximum(st.crps[:, 1], 1)
+            refl["crps_dbz"] = (st.crps[:, 0] / n).tolist()
+            if st.spread[:, 0].any():
+                refl["spread_skill_ratio"] = [
+                    float(np.sqrt(a / b)) if b > 0 else float("nan") for a, b in st.spread
                 ]
             out[name] = {
                 "reflectivity": refl,
@@ -280,7 +299,11 @@ def main(argv: list[str] | None = None) -> None:
     events = resolve_events(cfg, args.events, args.split, splits)
     source = {str(ev.ds.attrs.get("source", cfg.data.source)) for _, ev in events}
     fs = build_forecasters(
-        runner, parse_baselines(args.baselines), cfg.eval.steps_members, not args.no_satellite_only
+        runner,
+        parse_baselines(args.baselines),
+        cfg.eval.steps_members,
+        not args.no_satellite_only,
+        cfg.eval.ensemble_members,
     )
     log.info("evaluating %d forecasters on %d %s events", len(fs), len(events), args.split)
     res = evaluate(
