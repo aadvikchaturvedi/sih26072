@@ -81,7 +81,26 @@ accumulation and workers are config keys (`data.batch_size`, `train.accumulate_g
 `data.num_workers`). W&B logging is off by default: `train.wandb.enabled=true`.
 Splits are always **by event** and recorded in each artifact's `splits.json`.
 
-SEVIR subset: `pip install -e ".[sevir]" && python scripts/download_sevir_subset.py --out data/sevir --n-events 200`.
+**SEVIR (public, no login).** One command runs every stage SEVIR supports: download, convert,
+pretrain, lightning head, calibration, evaluation, export and refiner. It resumes per stage:
+
+```bash
+pip install -e ".[sevir]"
+scripts/train_sevir_pipeline.sh          # N_EVENTS=600 PRETRAIN_EPOCHS=30 by default
+```
+
+`scripts/download_sevir_subset.py` fetches only the selected events with HTTP range requests, so
+it doesn't download the multi-GB files. `scripts/sevir_to_zarr.py` converts them to input-contract
+Zarr stores (3 km, 128×128). What checking the real files showed:
+
+- The arrays are stored **south-up**, so the converter flips them.
+- The grids are LAEA-projected, so geolocation uses the catalog `proj` string exactly.
+- SEVIR fills missing frames by repeating one, and those frames are masked as missing.
+- `python scripts/sevir_to_zarr.py --check-lightning 30` checks the result: 96% of GLM flash pixels
+  land on ≥30 dBZ echoes.
+
+On macOS keep `data.num_workers=0`. Persistent DataLoader workers deadlock under Lightning with the
+spawn start method, and loading is fast enough without them.
 Colab: `notebooks/colab_train.ipynb` wraps the same CLIs (install, mount Drive, stages a–d, eval, export).
 
 ## Evaluation
