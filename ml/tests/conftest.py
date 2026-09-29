@@ -37,3 +37,25 @@ def events_dir(tmp_path_factory) -> Path:
     d = tmp_path_factory.mktemp("events")
     write_events(d, 6, seed=1, size=32, n_frames=24, radar_missing_prob=0.1)
     return d
+
+
+@pytest.fixture(scope="session")
+def tiny_cfg(configs_dir):
+    """Smoke config shrunk further for fast unit tests (32x32, tiny widths)."""
+    from nowcast_ml.config import load_config
+
+    return load_config(
+        configs_dir / "train" / "smoke.yaml",
+        [
+            "data.synthetic.n_events=6",
+            "data.synthetic.size=32",
+            "data.synthetic.n_frames=22",
+            "data.sample_stride=3",
+            "data.batch_size=4",
+            "model.hid_s=8",
+            "model.hid_t=16",
+            "model.lightning_head.hidden=8",
+            "train.max_epochs=1",
+            "registry.save=false",
+        ],
+    )
