@@ -71,7 +71,11 @@ def _file_layout(fs, file_name: str, img_type: str, ids: list[str] | None = None
         for i in ids or []:
             if i in h:
                 d = h[i]
-                out[i] = {"offset": d.id.get_offset(), "shape": d.shape, "dtype": d.dtype.str}
+                off = d.id.get_offset()
+                # Empty or compact datasets (data stored in the object header) have no offset:
+                # read those small tables directly.
+                data = d[:] if off is None else None
+                out[i] = {"offset": off, "shape": d.shape, "dtype": d.dtype.str, "data": data}
         return out
 
 
@@ -133,6 +137,9 @@ def main(argv=None):
                     arrays[t] = np.zeros((0, 5), np.float32)
                     continue
                 lay = lay[eid]
+                if lay["data"] is not None:
+                    arrays[t] = np.asarray(lay["data"])
+                    continue
                 dt = np.dtype(lay["dtype"])
                 n = int(np.prod(lay["shape"])) * dt.itemsize
                 arrays[t] = np.frombuffer(_range(url, lay["offset"], n), dt).reshape(lay["shape"])
