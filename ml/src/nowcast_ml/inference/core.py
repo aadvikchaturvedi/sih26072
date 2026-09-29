@@ -71,3 +71,11 @@ class ModelForecaster:
         self, inp: ForecastInput, n_leads: int = 12, ltg_leads_min=(30, 60)
     ) -> ForecastArrays:
         return self.runner.forecast(inp, satellite_only=self.satellite_only)
+
+
+def detect_mode(avail: np.ndarray, channels: list[str], min_radar_coverage: float = 0.05) -> str:
+    """``full`` if radar covers >= ``min_radar_coverage`` of the domain in the last input frame,
+    otherwise ``satellite_only``. ``avail`` is (T, C, H, W)."""
+    from nowcast_ml.data.event import radar_coverage
+
+    return "full" if radar_coverage(avail, channels) >= min_radar_coverage else "satellite_only"
