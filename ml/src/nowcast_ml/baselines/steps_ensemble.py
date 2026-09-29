@@ -2,12 +2,15 @@
 
 Reflectivity is converted to rain rate (Marshall-Palmer Z = 200 R^1.6), log-
 transformed to dBR as STEPS expects, forecast, and converted back to dBZ. The
-deterministic ``reflectivity`` output is the ensemble mean in dBZ; members are
+deterministic ``reflectivity`` output is the ensemble mean taken in rain-rate
+space (averaging dBZ across displaced members collapses the peaks); members are
 returned in ``reflectivity_members``. Lightning uses the advected "persists" field.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import warnings
 
 import numpy as np
@@ -77,7 +80,7 @@ class StepsForecaster:
         ).mean() < 0.005:  # no precipitation: STEPS is undefined, forecast none
             members = np.zeros((self.n_members, n_leads, H, W))
         else:
-            with warnings.catch_warnings():
+            with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
                 warnings.simplefilter("ignore")
                 out = steps.forecast(
                     to_dbr(rain),
@@ -93,5 +96,7 @@ class StepsForecaster:
                     mask_method="incremental",
                     seed=self.seed,
                 )
-            members = rain_to_dbz(from_dbr(np.nan_to_num(out, nan=DBR_ZERO)))
+            rain_members = from_dbr(np.nan_to_num(out, nan=DBR_ZERO))
+            members = rain_to_dbz(rain_members)
+            return ForecastArrays(rain_to_dbz(rain_members.mean(axis=0)), ltg, members)
         return ForecastArrays(reflectivity=members.mean(axis=0), lightning=ltg, members=members)
