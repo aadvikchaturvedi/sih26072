@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- SEO -->
+    <title>Nowcast Console — SIH26072 | IMD Thunderstorm Nowcasting</title>
+    <meta name="description" content="AI/ML thunderstorm and lightning nowcasting console for India Meteorological Department. 0-120 min nowcast updated every 10 minutes. Smart India Hackathon 2026, PS 26072." />
+    <meta name="theme-color" content="#0E1217" />
+
+    <!-- Fonts are imported in main.tsx via @fontsource for offline support -->
+
+    <style>
+      /* Critical inline: prevent flash of unstyled content */
+      html, body, #root {
+        margin: 0; padding: 0; height: 100%;
+        background: #0E1217; color: #E6EBF1;
+        overflow: hidden;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

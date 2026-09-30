@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+/* ===== DESIGN TOKENS ===================================================== */
+
+@layer base {
+  :root {
+    /* Dark theme (control-room) — default */
+    --bg: #0E1217;
+    --panel: #151B22;
+    --raised: #1B232C;
+    --border: #263140;
+    --text: #E6EBF1;
+    --muted: #8B97A6;
+    --accent: #2F6FEB;
+    --accent-hover: #4A84FF;
+
+    /* Warning colours */
+    --warn-green:  #22C55E;
+    --warn-yellow: #EAB308;
+    --warn-orange: #F97316;
+    --warn-red:    #EF4444;
+
+    /* Warn fill (35% opacity approximations as hex alphas) */
+    --warn-green-fill:  #22C55E59;
+    --warn-yellow-fill: #EAB30859;
+    --warn-orange-fill: #F9731659;
+    --warn-red-fill:    #EF444459;
+
+    /* Typography */
+    --font-ui: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Mono', monospace;
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius: 6px;
+    --radius-md: 8px;
+  }
+
+  [data-theme="light"] {
+    --bg: #F3F5F8;
+    --panel: #FFFFFF;
+    --raised: #EEF1F5;
+    --border: #D5DBE3;
+    --text: #141A21;
+    --muted: #5A6675;
+    --accent: #1F58C9;
+    --accent-hover: #2F6FEB;
+  }
+
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Focus ring — visible, not intrusive */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--panel); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* Fonts */
+  .font-mono, code, pre, time, .mono {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+}
+
+/* ===== UTILITIES ========================================================= */
+
+@layer utilities {
+  .bg-panel   { background: var(--panel); }
+  .bg-raised  { background: var(--raised); }
+  .bg-bg      { background: var(--bg); }
+  .border-b   { border-bottom: 1px solid var(--border); }
+  .border-t   { border-top: 1px solid var(--border); }
+  .border-l   { border-left: 1px solid var(--border); }
+  .border-r   { border-right: 1px solid var(--border); }
+  .border-themed { border: 1px solid var(--border); }
+  .text-muted { color: var(--muted); }
+  .text-accent { color: var(--accent); }
+
+  /* Warning level colours */
+  .warn-green  { color: var(--warn-green); }
+  .warn-yellow { color: var(--warn-yellow); }
+  .warn-orange { color: var(--warn-orange); }
+  .warn-red    { color: var(--warn-red); }
+
+  .bg-warn-green  { background: var(--warn-green-fill); border-color: var(--warn-green); }
+  .bg-warn-yellow { background: var(--warn-yellow-fill); border-color: var(--warn-yellow); }
+  .bg-warn-orange { background: var(--warn-orange-fill); border-color: var(--warn-orange); }
+  .bg-warn-red    { background: var(--warn-red-fill); border-color: var(--warn-red); }
+
+  /* Motion */
+  .transition-ui {
+    transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .transition-ui { transition: none !important; }
+  }
+
+  /* Hairline dividers */
+  .hairline { border-width: 1px; border-style: solid; }
+
+  /* Label uppercase */
+  .label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Badge base */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid;
+  }
+
+  /* Input chip base */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  /* Stat block */
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Panel heading */
+  .panel-heading {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Forecast vs observed indicator */
+  .forecast-tag {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--warn-yellow);
+    border: 1px dashed var(--warn-yellow);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+}
+
+/* ===== ANIMATIONS ======================================================== */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 120ms ease forwards;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ===== MAPLIBRE OVERRIDES ================================================ */
+
+.maplibregl-ctrl-attrib {
+  display: none !important;
+}
+
+.maplibregl-ctrl-logo {
+  display: none !important;
+}
+
+/* ===== RECHARTS OVERRIDES ================================================ */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.recharts-default-tooltip {
+  background: var(--raised) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text) !important;
+  font-size: 11px !important;
+}
