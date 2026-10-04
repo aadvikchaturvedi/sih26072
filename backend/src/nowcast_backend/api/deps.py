@@ -12,6 +12,8 @@ from nowcast_backend.domain.errors import Unauthorized
 from nowcast_backend.domain.timeutil import parse_time
 from nowcast_backend.services.nowcast import NowcastService
 
+API_PREFIX = "/api/v1"
+
 
 def get_container(request: Request) -> Container:
     return request.app.state.container

@@ -61,7 +61,7 @@ def test_colorize():
     field = np.array([[np.nan, 0.0, 22.0, 52.0]])
     rgba = render.colorize(field, render.REFLECTIVITY)
     assert rgba[0, 0, 3] == 0 and rgba[0, 1, 3] == 0  # NaN and "no echo" are transparent
-    assert tuple(rgba[0, 2]) == (2, 253, 2, 255) and tuple(rgba[0, 3]) == (253, 0, 0, 255)
+    assert tuple(rgba[0, 2]) == (100, 200, 255, 200) and tuple(rgba[0, 3]) == (200, 0, 200, 250)
     prob = render.colorize(np.array([[0.0, 0.3, 1.0]]), render.PROBABILITY)
     assert prob[0, 0, 3] == 0 and tuple(prob[0, 1]) == (254, 204, 92, 190)
 
@@ -81,7 +81,7 @@ def test_cell_tracking_speed_and_direction(grid, event):
         past_ltg=np.zeros((51, 51), bool), model_name="m", model_version="v", mode="full",
         missing_channels=[], inference_ms=1.0,
     )  # fmt: skip
-    cfg = CellSettings(min_area_km2=8.0)
+    cfg = CellSettings(min_area_km2=8.0, track_minutes=60)
     found = cells.analyse(forecast, observed, grid, cfg, step_minutes=10)
     assert len(found) == 1
     cell = found[0]
@@ -90,6 +90,8 @@ def test_cell_tracking_speed_and_direction(grid, event):
     assert len(cell.history) == 3 and len(cell.forecast_track) == 6
     assert cell.forecast_track[-1].lon > cell.lon and cell.trend == "growing"
     assert cell.lightning_prob == {"30": 0.4, "60": 0.4}
+    assert not cell.is_new and cell.growth_dbz_per_10min == pytest.approx(0.0, abs=0.5)
+    assert all(p.lightning_prob == pytest.approx(0.4) for p in cell.forecast_track)
 
     # the next run recognises the same storm and keeps its id; a far-away one gets a new id
     later = [
@@ -97,7 +99,7 @@ def test_cell_tracking_speed_and_direction(grid, event):
     ]
     forecast.attrs["t0"] = "2026-05-12T10:40:00Z"
     again = cells.analyse(forecast, later, grid, cfg, 10, previous=found)
-    assert again[0].id == cell.id
+    assert again[0].id == cell.id and not again[0].is_new
     elsewhere = [(ts, blob_field(45, 45)) for ts, _ in later]
     assert cells.analyse(forecast, elsewhere, grid, cfg, 10, previous=found)[0].id != cell.id
 

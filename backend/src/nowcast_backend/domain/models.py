@@ -16,6 +16,9 @@ Hazard = Literal["lightning", "thunderstorm"]
 Level = Literal["yellow", "orange", "red"]
 LEVELS: tuple[str, ...] = ("yellow", "orange", "red")
 WarningStatus = Literal["active", "superseded", "cancelled", "expired"]
+#: District colour code; ``green`` = no warning.
+DistrictLevel = Literal["green", "yellow", "orange", "red"]
+InputGroup = Literal["radar", "satellite", "lightning", "nwp"]
 
 
 class Bounds(BaseModel):
@@ -51,6 +54,15 @@ class DomainStatus(BaseModel):
     latest_time: datetime | None
 
 
+class InputHealth(BaseModel):
+    """State of one input group at a forecast's analysis time."""
+
+    name: InputGroup
+    status: Literal["live", "stale", "missing"]
+    last_received: datetime | None  # newest input frame carrying this group
+    stale_age_seconds: int | None  # None when live
+
+
 class ForecastMeta(BaseModel):
     domain: str
     t0: datetime
@@ -71,6 +83,7 @@ class ForecastMeta(BaseModel):
     max_reflectivity_dbz: float
     max_lightning_prob: float
     n_cells: int = 0
+    inputs: list[InputHealth] = Field(default_factory=list)
 
 
 class TrackPoint(BaseModel):
@@ -78,6 +91,14 @@ class TrackPoint(BaseModel):
     lat: float
     lon: float
     max_dbz: float | None = None
+    flash_rate: float | None = None  # flashes per minute near the cell (observed points)
+    lightning_prob: float | None = None  # forecast points within the lightning leads
+
+
+class AffectedRegion(BaseModel):
+    region_id: str
+    name: str
+    eta_min: int  # 0 = the cell is over it now
 
 
 class StormCell(BaseModel):
@@ -97,6 +118,36 @@ class StormCell(BaseModel):
     polygon: dict[str, Any]  # GeoJSON geometry
     history: list[TrackPoint] = Field(default_factory=list)
     forecast_track: list[TrackPoint] = Field(default_factory=list)
+    is_new: bool = False  # first seen in this run
+    growth_dbz_per_10min: float = 0.0
+    flash_rate: float = 0.0  # flashes per minute in the last step
+    #: Flash rate rose by more than 2 sigma of its recent changes (kept for 30 min).
+    lightning_jump: bool = False
+    lightning_jump_at: datetime | None = None
+    affected: list[AffectedRegion] = Field(default_factory=list)
+
+
+class Region(BaseModel):
+    """An administrative area (district) that forecasts are summarised over."""
+
+    id: str
+    name: str
+    geometry: dict[str, Any]  # GeoJSON Polygon / MultiPolygon
+
+
+class DistrictForecast(BaseModel):
+    district_id: str
+    name: str
+    lightning_prob_30: float
+    lightning_prob_60: float
+    max_dbz: float  # forecast MAX-Z within the next hour
+    area_fraction_above_threshold: float
+    first_flash: bool
+    level: DistrictLevel
+    rule: str  # the condition that set the level
+    trigger_value: float
+    trigger_threshold: float
+    cause_cell: str | None = None
 
 
 class Warning(BaseModel):
@@ -123,6 +174,24 @@ class Warning(BaseModel):
     polygon: dict[str, Any]  # GeoJSON geometry
     mode: str
     model_version: str
+
+
+class DistrictWarning(BaseModel):
+    """A change of a district's level between two consecutive forecasts."""
+
+    id: str
+    level: DistrictLevel  # ``green`` = the earlier warning is lifted
+    previous_level: DistrictLevel | None
+    supersedes: str | None = None  # the district's previous warning
+    district_id: str
+    district_name: str
+    cause_text: str
+    cause_cell: str | None
+    rule: str
+    trigger_value: float
+    trigger_threshold: float
+    issued_at: datetime
+    valid_until: datetime
 
 
 class IngestResult(BaseModel):

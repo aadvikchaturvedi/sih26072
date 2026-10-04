@@ -4,6 +4,7 @@
  * UI components import from here — never directly from mock/ or api/.
  */
 import type { DataSource } from './DataSource';
+import { setTimeline } from './timeline';
 
 let instance: DataSource | null = null;
 
@@ -12,13 +13,17 @@ export async function getDataSource(): Promise<DataSource> {
 
   const mode = import.meta.env.VITE_DATA_SOURCE ?? 'mock';
 
+  let created: DataSource;
   if (mode === 'api') {
     const { ApiDataSource } = await import('./api/ApiDataSource');
-    instance = new ApiDataSource();
+    created = new ApiDataSource();
   } else {
     const { MockDataSource } = await import('./mock/MockDataSource');
-    instance = new MockDataSource();
+    created = new MockDataSource();
   }
+  // The timeline must be known before any component asks for a frame's data.
+  setTimeline(await created.getTimeline());
+  instance = created;
 
   return instance;
 }

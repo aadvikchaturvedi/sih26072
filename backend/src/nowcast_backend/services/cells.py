@@ -18,7 +18,7 @@ from scipy import ndimage
 
 from nowcast_backend.domain.grid import Grid, haversine_km
 from nowcast_backend.domain.models import StormCell, TrackPoint
-from nowcast_backend.domain.timeutil import aware_utc, stamp
+from nowcast_backend.domain.timeutil import aware_utc
 from nowcast_backend.services.geo import mask_polygon
 from nowcast_backend.settings import CellSettings
 
@@ -91,6 +91,34 @@ def _window_max(field_2d: np.ndarray, iy: float, ix: float, radius: int) -> floa
     return float(np.nanmax(win)) if win.size and np.isfinite(win).any() else None
 
 
+class FlashCounter:
+    """Flash rate (per minute) near a point during one time step."""
+
+    def __init__(self, flashes, grid: Grid, step_minutes: int, radius_km: float = 15.0):
+        self._times, lat, lon = flashes if flashes is not None else ((), (), ())
+        self._iy, self._ix = grid.pixel_of(lat, lon) if len(lat) else (np.array([]), np.array([]))
+        self._step = np.timedelta64(step_minutes, "m")
+        self._minutes = step_minutes
+        self._radius_px = radius_km / grid.spacing_km
+
+    def rate(self, time: pd.Timestamp, iy: float, ix: float) -> float:
+        if not len(self._iy):
+            return 0.0
+        t = np.datetime64(time)
+        recent = (self._times > t - self._step) & (self._times <= t)
+        near = np.hypot(self._iy[recent] - iy, self._ix[recent] - ix) <= self._radius_px
+        return float(near.sum()) / self._minutes
+
+
+def lightning_jump(rates: list[float], min_rise: float = 1.0) -> bool:
+    """The newest flash-rate change exceeds the mean + 2 sigma of the earlier changes."""
+    if len(rates) < 4:
+        return False
+    changes = np.diff(rates)
+    earlier, newest = changes[:-1], changes[-1]
+    return bool(newest >= min_rise and newest > earlier.mean() + 2.0 * earlier.std())
+
+
 def analyse(
     forecast: xr.Dataset,
     observed: list[tuple[pd.Timestamp, np.ndarray]],
@@ -98,12 +126,13 @@ def analyse(
     cfg: CellSettings,
     step_minutes: int,
     previous: list[StormCell] | None = None,
+    flashes=None,
 ) -> list[StormCell]:
     """Cells at the forecast's analysis time.
 
     ``observed`` holds the radar frames up to t0 (oldest first, NaN where missing).
     When the t0 frame has no radar the cells are taken from the +10 min forecast and
-    tracked through the following leads instead.
+    tracked through the following leads instead. ``flashes`` are (time, lat, lon) arrays.
     """
     t0 = pd.Timestamp(forecast.attrs["t0"]).tz_localize(None)
     leads = [int(v) for v in forecast["lead"].values]
@@ -122,6 +151,10 @@ def analyse(
         link(before, after, max_px)
 
     radius = max(1, int(round(15.0 / grid.spacing_km)))  # search radius around a track point
+    counter = FlashCounter(flashes, grid, step_minutes)
+    ltg_leads = sorted(
+        int(v.rsplit("_", 1)[1]) for v in forecast.data_vars if v.startswith("lightning_prob_")
+    )
     cells = []
     for blob in sorted(blobs[ref], key=lambda b: -b.max_dbz):
         chain = _chain(blob, ref)
@@ -144,12 +177,19 @@ def analyse(
             if not grid.contains_px(iy, ix):
                 break
             lat, lon = grid.latlon_at(iy, ix)
+            # the lightning product whose window covers this lead, if any
+            covering = next((m for m in ltg_leads if lead <= m), None)
             track.append(
                 TrackPoint(
                     time=aware_utc(valid),
                     lat=float(lat[0]),
                     lon=float(lon[0]),
                     max_dbz=_window_max(refl[k], iy, ix, radius),
+                    lightning_prob=_window_max(
+                        forecast[f"lightning_prob_{covering}"].values, iy, ix, radius
+                    )
+                    if covering
+                    else None,
                 )
             )
         history = []
@@ -162,8 +202,13 @@ def analyse(
                         lat=float(lat[0]),
                         lon=float(lon[0]),
                         max_dbz=past.max_dbz,
+                        flash_rate=counter.rate(frames[i][0], past.iy, past.ix)
+                        if basis == "observed"
+                        else None,
                     )
                 )
+        flash_rate = counter.rate(time, blob.iy, blob.ix) if basis == "observed" else 0.0
+        jumped = lightning_jump([*(p.flash_rate or 0.0 for p in history), flash_rate])
         trend = "steady"
         ahead = [p.max_dbz for p in track[:3] if p.max_dbz is not None]
         if ahead:
@@ -198,6 +243,12 @@ def analyse(
                 polygon=mask_polygon(blob.mask, grid),
                 history=history,
                 forecast_track=track,
+                growth_dbz_per_10min=(blob.max_dbz - history[-1].max_dbz) * 10.0 / step_minutes
+                if history and history[-1].max_dbz is not None
+                else 0.0,
+                flash_rate=flash_rate,
+                lightning_jump=jumped,
+                lightning_jump_at=aware_utc(time) if jumped else None,
             )
         )
     _assign_ids(cells, previous or [], t0, cfg)
@@ -226,13 +277,19 @@ def _assign_ids(cells: list[StormCell], previous: list[StormCell], t0, cfg: Cell
             continue
         taken_new.add(i)
         taken_old.add(j)
-        cells[i].id = previous[j].id
+        cell, old = cells[i], previous[j]
+        cell.id = old.id
+        # a lightning jump stays flagged for 30 minutes
+        if not cell.lightning_jump and old.lightning_jump and old.lightning_jump_at:
+            if (cell.time - old.lightning_jump_at).total_seconds() <= 1800:
+                cell.lightning_jump, cell.lightning_jump_at = True, old.lightning_jump_at
     used = {c.id for c in cells}
     n = 0
     for cell in cells:
+        cell.is_new = not cell.id and not cell.history
         while not cell.id:
             n += 1
-            candidate = f"{stamp(t0)}-{n:02d}"
+            candidate = f"C{t0:%H%M}-{n}"  # first-seen time; short enough for a map label
             if candidate not in used:
                 cell.id = candidate
                 used.add(candidate)

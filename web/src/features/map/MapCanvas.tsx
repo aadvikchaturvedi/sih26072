@@ -18,8 +18,15 @@ import { useUIStore } from '@/store/uiStore';
 import { useCells, useForecast, useLightningStrokes, useDistricts } from '@/data/hooks';
 import { getDataSourceSync } from '@/data/dataSourceFactory';
 import { addMinutes, parseISO } from 'date-fns';
-import { DOMAIN_BBOX } from '@/data/mock/scenario';
-import { warningColor } from '@/lib/warningHelpers';
+import { getTimeline } from '@/data/timeline';
+
+/** District fill colours. MapLibre paint properties cannot resolve CSS variables. */
+const LEVEL_HEX: Record<string, string> = {
+  red: '#EF4444',
+  orange: '#F97316',
+  yellow: '#EAB308',
+  green: '#22C55E',
+};
 import type { Cell, DistrictForecast } from '@/data/types';
 import odishaDistricts from '@/assets/geo/odisha_districts.json';
 
@@ -48,6 +55,8 @@ export function MapCanvas() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const overlayRef = useRef<MapLibreOverlay | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  // The data effects below need the style's sources; re-run them once the map has loaded.
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   const {
     replayFrame, layers, selectedCellId, setSelectedCellId,
@@ -78,6 +87,8 @@ export function MapCanvas() {
     });
 
     mapRef.current = map;
+    // Extent the raster overlays are stretched over (fixed for the session).
+    const DOMAIN_BBOX = getTimeline().bbox;
 
     overlayRef.current = new MapLibreOverlay({
       interleaved: true,
@@ -232,6 +243,8 @@ export function MapCanvas() {
         if (props) setSelectedDistrictId(props.id);
         }
       });
+
+      setMapLoaded(true);
     });
 
     // Scale bar
@@ -249,7 +262,7 @@ export function MapCanvas() {
   // Update radar image source
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !forecast) return;
+    if (!map || !mapLoaded || !forecast) return;
 
     try {
       const src = map.getSource('radar') as maplibregl.ImageSource | undefined;
@@ -294,17 +307,17 @@ export function MapCanvas() {
     } catch (_e) {
       // Map may not be fully loaded yet
     }
-  }, [forecast, layers.observedRadar, layers.lightningProb30, layers.lightningProb60, layers.firstFlash, selectedLead]);
+  }, [mapLoaded, forecast, layers.observedRadar, layers.lightningProb30, layers.lightningProb60, layers.firstFlash, selectedLead]);
 
   // Update district warning colors
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !districts) return;
+    if (!map || !mapLoaded || !districts) return;
 
     try {
       if (!map.getSource('districts') || !map.getLayer('district-fills')) return;
 
-      const colorEntries = districts.flatMap((d) => [d.districtId, warningColor(d.warningLevel)]);
+      const colorEntries = districts.flatMap((d) => [d.districtId, LEVEL_HEX[d.warningLevel]]);
       const colorMap = ['match', ['get', 'id'], ...colorEntries, '#22C55E'];
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -319,7 +332,7 @@ export function MapCanvas() {
     } catch (_e) {
       // ignore
     }
-  }, [districts, layers.districtWarnings, layers.districtLabels]);
+  }, [mapLoaded, districts, layers.districtWarnings, layers.districtLabels]);
 
 
   // Update deck.gl overlay
@@ -334,8 +347,8 @@ export function MapCanvas() {
           id: 'strokes',
           data: strokes,
           getPosition: (d: any) => [d.lon, d.lat],
-          getFillColor: (d: any) => d.type === 'cg' ? [255, 200, 0, 200] : [200, 200, 255, 150],
-          getRadius: (d: any) => d.type === 'cg' ? 1200 : 800,
+          getFillColor: [255, 200, 0, 200],
+          getRadius: 1000,
           radiusUnits: 'meters',
         })
       );

@@ -13,8 +13,13 @@ import type {
   LightningStroke,
   DistrictForecast,
 } from './types';
+import type { Timeline } from './timeline';
 
 export interface DataSource {
+  /** Whether new forecasts arrive while the app is open (drives the live subscription) */
+  readonly live: boolean;
+  /** The analysis times available for replay and the map extent */
+  getTimeline(): Promise<Timeline>;
   /** Get forecast imagery URLs and metadata for a given analysis time */
   getForecast(t0: string): Promise<ForecastResponse>;
   /** Get observed radar image URL for a specific time */

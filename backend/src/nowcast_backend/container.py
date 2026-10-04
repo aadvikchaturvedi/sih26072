@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from nowcast_backend.adapters.evaluation import JsonEvaluation
 from nowcast_backend.adapters.forecast_store import ZarrForecastStore
 from nowcast_backend.adapters.notifiers import (
     CompositeNotifier,
@@ -13,6 +14,7 @@ from nowcast_backend.adapters.notifiers import (
     WebhookNotifier,
 )
 from nowcast_backend.adapters.observations import RollingObservationStore
+from nowcast_backend.adapters.regions import GeoJsonRegions, NoRegions
 from nowcast_backend.adapters.sources import ReplaySource, ZarrDirectorySource
 from nowcast_backend.adapters.warning_repo import SqliteWarningRepository
 from nowcast_backend.ports import ForecastEngine, FrameSource
@@ -39,7 +41,11 @@ def _source(settings: Settings, t_in: int) -> FrameSource | None:
         raise ValueError(f"NOWCAST_SOURCE={settings.source} needs NOWCAST_SOURCE_PATH")
     if settings.source == "watch":
         return ZarrDirectorySource(settings.source_path, initial_frames=settings.buffer_frames)
-    return ReplaySource(settings.source_path, settings.replay_domain, initial_frames=t_in)
+    return ReplaySource(
+        settings.source_path,
+        settings.replay_domain,
+        initial_frames=settings.replay_initial_frames or t_in,
+    )
 
 
 def build_container(settings: Settings, engine: ForecastEngine | None = None) -> Container:
@@ -66,6 +72,8 @@ def build_container(settings: Settings, engine: ForecastEngine | None = None) ->
         ZarrForecastStore(settings.data_dir / "forecasts"),
         WarningService(SqliteWarningRepository(settings.data_dir / "warnings.sqlite3")),
         CompositeNotifier(notifiers),
+        GeoJsonRegions(settings.regions_path) if settings.regions_path else NoRegions(),
+        JsonEvaluation(settings.skill_report_path),
     )
     source = _source(settings, model.t_in)
     scheduler = Scheduler(service, source, settings.poll_seconds) if source else None

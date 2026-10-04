@@ -156,8 +156,9 @@ export interface LightningStroke {
   time: string; // ISO-8601 UTC
   lat: number;
   lon: number;
-  polarity: 'positive' | 'negative';
-  peakCurrentKA: number;
+  /** Not in the input contract's flash table; present only if the network reports it */
+  polarity?: 'positive' | 'negative';
+  peakCurrentKA?: number;
   cellId: string | null;
 }
 
@@ -220,27 +221,30 @@ export interface ModelSkill {
   csiByThreshold: Record<string, SkillCurvePoint[]>;
   /** Reliability diagram: (forecast_prob, observed_freq) pairs */
   reliabilityDiagram: Array<{ forecastProb: number; observedFreq: number; count: number }>;
-  brierSkillScore: number;
-  rocAuc: number;
-  pod: number;
-  far: number;
+  /** Scores are null when they could not be computed (e.g. FAR with no warnings issued) */
+  brierSkillScore: number | null;
+  rocAuc: number | null;
+  pod: number | null;
+  far: number | null;
   /** First-flash specific metrics */
-  firstFlashHitRate: number;
-  firstFlashFAR: number;
+  firstFlashHitRate: number | null;
+  firstFlashFAR: number | null;
   /** Median lead time before first flash, in minutes */
-  medianFirstFlashLeadMin: number;
+  medianFirstFlashLeadMin: number | null;
 }
 
 export interface SkillReport {
   /** Generated timestamp */
   reportAt: string; // ISO-8601 UTC
   /** Headline metric: median first-flash lead time in minutes */
-  medianFirstFlashLeadMin: number;
+  medianFirstFlashLeadMin: number | null;
   models: ModelSkill[];
   /** Evaluation event metadata */
   eventLabel: string;
-  eventStartAt: string;
-  eventEndAt: string;
+  eventStartAt: string | null;
+  eventEndAt: string | null;
+  /** True when the scores come from synthetic data and say nothing about real skill */
+  synthetic?: boolean;
 }
 
 // ─── Live tick ────────────────────────────────────────────────────────────────

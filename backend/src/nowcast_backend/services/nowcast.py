@@ -14,21 +14,35 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import xarray as xr
+from nowcast_ml.data import channels as ch
 
 from nowcast_backend.domain.errors import Conflict, InvalidObservations, InvalidRequest, NotFound
+from nowcast_backend.domain.grid import Grid
 from nowcast_backend.domain.models import (
     SOURCES,
+    DistrictForecast,
+    DistrictWarning,
     DomainStatus,
     Event,
     ForecastMeta,
     IngestResult,
+    InputHealth,
     ModelDescription,
+    Region,
     StormCell,
     Warning,
 )
 from nowcast_backend.domain.timeutil import aware_utc, naive_utc, now_utc
-from nowcast_backend.ports import ForecastEngine, ForecastStore, Notifier, ObservationStore
+from nowcast_backend.ports import (
+    EvaluationSource,
+    ForecastEngine,
+    ForecastStore,
+    Notifier,
+    ObservationStore,
+    RegionProvider,
+)
 from nowcast_backend.services import cells as cell_service
+from nowcast_backend.services import districts as district_service
 from nowcast_backend.services import warnings as warning_rules
 from nowcast_backend.services.warnings import WarningService
 from nowcast_backend.settings import Settings
@@ -56,6 +70,8 @@ class NowcastService:
         forecasts: ForecastStore,
         warnings: WarningService,
         notifier: Notifier,
+        regions: RegionProvider,
+        evaluation: EvaluationSource,
     ):
         self._settings = settings
         self._engine = engine
@@ -63,6 +79,9 @@ class NowcastService:
         self._forecasts = forecasts
         self._warnings = warnings
         self._notifier = notifier
+        self._regions = regions
+        self._evaluation = evaluation
+        self._region_index: dict[str, tuple[Grid, district_service.RegionIndex]] = {}
         self._model = engine.describe()
         self._run_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 
@@ -122,12 +141,14 @@ class NowcastService:
                 data={"frames": len(accepted)},
             )
         )
-        advanced = before is None or status.latest_time > before
-        if (self._settings.auto_forecast if run is None else run) and advanced:
-            try:
-                result.forecast = self.run(domain)
-            except Conflict as e:  # not enough history yet: the frames are stored regardless
-                log.info("domain %s: no forecast yet: %s", domain, e.message)
+        if self._settings.auto_forecast if run is None else run:
+            # Every newly arrived time gets its forecast, oldest first, so a batch of
+            # frames (a late delivery, a replay) leaves no holes in the forecast series.
+            for t in sorted(t for t in accepted if before is None or aware_utc(t) > before):
+                try:
+                    result.forecast = self.run(domain, t)
+                except Conflict as e:  # not enough history yet: the frames are stored regardless
+                    log.info("domain %s: no forecast for %s: %s", domain, t, e.message)
         return result
 
     # ------------------------------------------------------------------ forecast
@@ -160,6 +181,7 @@ class NowcastService:
                 )
             forecast = self._engine.forecast(inputs, t0, source=source, n_members=n_members)
             grid = self._observations.grid(domain)
+            step = pd.Timedelta(minutes=self._model.step_minutes)
             cells = cell_service.analyse(
                 forecast,
                 self._radar_frames(inputs),
@@ -167,9 +189,15 @@ class NowcastService:
                 self._settings.cells,
                 self._model.step_minutes,
                 previous=self._previous_cells(domain, t0, source),
+                flashes=self._observations.flashes(domain, t0 - self._model.t_in * step, t0),
             )
+            index = self._index(domain, grid)
+            for cell in cells:
+                cell.affected = district_service.affected_regions(cell, index, grid)
+            districts = district_service.assess(forecast, index, cells, self._settings.districts)
             meta = self._describe(domain, source, forecast, status, observed, len(cells))
-            self._forecasts.save(meta, forecast, cells)
+            meta.inputs = self._input_health(inputs)
+            self._forecasts.save(meta, forecast, {"cells": cells, "districts": districts})
             self._forecasts.prune(domain, self._settings.forecast_retention)
         self._notifier.publish(
             Event(
@@ -215,7 +243,44 @@ class NowcastService:
         earlier = [t for t in self._forecasts.times(domain, source) if t < t0]
         if not earlier or t0 - earlier[-1] > pd.Timedelta(minutes=3 * self._model.step_minutes):
             return []
-        return self._forecasts.cells(domain, earlier[-1], source)
+        return self._cells(domain, earlier[-1], source)
+
+    def _cells(self, domain: str, t0: pd.Timestamp, source: str) -> list[StormCell]:
+        items = self._forecasts.product(domain, t0, source, "cells")
+        return [StormCell.model_validate(c) for c in items]
+
+    def _index(self, domain: str, grid: Grid) -> district_service.RegionIndex:
+        """Regions rasterised on the domain's grid (rebuilt only if the grid changes)."""
+        cached = self._region_index.get(domain)
+        if cached is None or cached[0] is not grid:
+            cached = (grid, district_service.RegionIndex(self._regions.regions(), grid))
+            self._region_index[domain] = cached
+        return cached[1]
+
+    def _input_health(self, inputs: xr.Dataset) -> list[InputHealth]:
+        """Per input group: is it present at t0, and if not, when was it last seen."""
+        times = [naive_utc(t) for t in inputs["time"].values]
+        present = {ch.group_of(str(c)) for c in inputs["channel"].values}
+        groups = [str(g) for g in inputs["group"].values]
+        missing = inputs["missing"].values.astype(bool)
+        floor = self._settings.min_group_coverage
+        out = []
+        for group in ch.GROUPS:
+            seen = None
+            if group in present:
+                coverage = 1.0 - missing[:, groups.index(group)].mean(axis=(1, 2))
+                frames = np.nonzero(coverage >= floor)[0]
+                seen = times[int(frames[-1])] if len(frames) else None
+            age = None if seen is None else int((times[-1] - seen).total_seconds())
+            out.append(
+                InputHealth(
+                    name=group,
+                    status="missing" if seen is None else "live" if age == 0 else "stale",
+                    last_received=None if seen is None else aware_utc(seen),
+                    stale_age_seconds=age or None,
+                )
+            )
+        return out
 
     def _describe(
         self,
@@ -277,7 +342,43 @@ class NowcastService:
         return self._forecasts.dataset(domain, self.resolve_t0(domain, t0, source), source)
 
     def cells(self, domain: str, t0: pd.Timestamp | None, source: str) -> list[StormCell]:
-        return self._forecasts.cells(domain, self.resolve_t0(domain, t0, source), source)
+        return self._cells(domain, self.resolve_t0(domain, t0, source), source)
+
+    def forecast_time_list(self, domain: str, source: str = "model") -> list[pd.Timestamp]:
+        """Analysis times with a stored forecast, oldest first."""
+        return self._forecasts.times(check_domain_id(domain), source)
+
+    def districts(self, domain: str, t0: pd.Timestamp | None) -> list[DistrictForecast]:
+        t0 = self.resolve_t0(domain, t0, "model")
+        items = self._forecasts.product(domain, t0, "model", "districts")
+        return [DistrictForecast.model_validate(d) for d in items]
+
+    def district_warnings(self, domain: str, until: pd.Timestamp | None) -> list[DistrictWarning]:
+        """District level changes in the stored forecasts up to ``until``, oldest first."""
+        until = self.resolve_t0(domain, until, "model")
+        times = [t for t in self._forecasts.times(domain, "model") if t <= until]
+        return district_service.level_changes(
+            ((t, self.districts(domain, t), self._cells(domain, t, "model")) for t in times),
+            self._settings.districts.valid_minutes,
+        )
+
+    def regions(self) -> list[Region]:
+        return self._regions.regions()
+
+    def flashes(self, domain: str, t0: pd.Timestamp, minutes: int = 30):
+        """Flash points on the domain during the ``minutes`` up to ``t0``: (time, lat, lon)."""
+        check_domain_id(domain)
+        t0 = naive_utc(t0)
+        time, lat, lon = self._observations.flashes(domain, t0 - pd.Timedelta(minutes=minutes), t0)
+        b = self._observations.grid(domain).bounds
+        inside = (lat >= b.south) & (lat <= b.north) & (lon >= b.west) & (lon <= b.east)
+        return time[inside], lat[inside], lon[inside]
+
+    def evaluation(self) -> dict:
+        metrics = self._evaluation.metrics()
+        if metrics is None:
+            raise NotFound("this model has no evaluation report yet (run nowcast-eval)")
+        return metrics
 
     def layer(
         self,

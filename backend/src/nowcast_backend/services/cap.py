@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from xml.etree import ElementTree as ET
 
-from nowcast_backend.domain.models import Warning
+from nowcast_backend.domain.models import DistrictWarning, Region, Warning
 from nowcast_backend.services.geo import rings
 from nowcast_backend.settings import CapSettings
 
@@ -15,6 +15,14 @@ ATOM_NS = "http://www.w3.org/2005/Atom"
 _SEVERITY = {"yellow": "Moderate", "orange": "Severe", "red": "Extreme"}
 _RESPONSE = {"yellow": "Monitor", "orange": "Prepare", "red": "Shelter"}
 _EVENT = {"lightning": "Lightning", "thunderstorm": "Thunderstorm"}
+#: What people should do, by colour code.
+INSTRUCTIONS = {
+    "yellow": "Be aware. Keep watching for updates and plan to move indoors if the sky darkens.",
+    "orange": "Be prepared. Finish or postpone outdoor work; stay away from open fields, "
+    "tall trees and water.",
+    "red": "Take action now. Go inside a solid building or a hard-top vehicle and stay there; "
+    "unplug sensitive equipment and keep away from windows.",
+}
 
 
 def _time(t: datetime) -> str:
@@ -80,6 +88,73 @@ def cap_alert(w: Warning, cfg: CapSettings, previous: Warning | None = None) -> 
     for ring in rings(w.polygon):
         _add(area, "polygon", " ".join(f"{lat},{lon}" for lon, lat in ring))
     return ET.tostring(alert, encoding="unicode", xml_declaration=True)
+
+
+NOTE = "Warning thresholds are draft placeholders, not IMD operational criteria."
+_DISTRICT_SEVERITY = {**_SEVERITY, "green": "Minor"}
+_DISTRICT_RESPONSE = {**_RESPONSE, "green": "AllClear"}
+
+
+def _decimate(ring: list, max_points: int = 60) -> list:
+    """Thin a long boundary ring; CAP consumers choke on thousands of vertices."""
+    step = max(1, len(ring) // max_points)
+    thin = ring[:-1:step]
+    return [*thin, thin[0]]
+
+
+def district_alert(
+    w: DistrictWarning, region: Region | None, previous: DistrictWarning | None, cfg: CapSettings
+) -> tuple[str, dict]:
+    """A district warning as CAP 1.2 XML and as the same content in JSON."""
+    lifted = w.level == "green"
+    headline = (
+        f"Thunderstorm warning lifted: {w.district_name}"
+        if lifted
+        else f"{w.level.upper()} thunderstorm warning: {w.district_name}"
+    )
+    doc = {
+        "identifier": w.id,
+        "sender": cfg.sender,
+        "sent": _time(w.issued_at),
+        "status": cfg.status,
+        "msgType": "Cancel" if lifted and previous else "Update" if previous else "Alert",
+        "scope": "Public",
+        "note": NOTE,
+        "info": {
+            "language": cfg.language,
+            "category": "Met",
+            "event": "Thunderstorm/Lightning Nowcast",
+            "responseType": _DISTRICT_RESPONSE[w.level],
+            "urgency": "Immediate" if w.level == "red" else "Expected",
+            "severity": _DISTRICT_SEVERITY[w.level],
+            "certainty": "Likely" if w.level in ("orange", "red") else "Possible",
+            "onset": _time(w.issued_at),
+            "expires": _time(w.valid_until),
+            "senderName": cfg.sender_name,
+            "headline": headline,
+            "description": f"{w.cause_text}. Rule: {w.rule}.",
+            "instruction": "No action needed." if lifted else INSTRUCTIONS[w.level],
+            "area": {"areaDesc": f"{w.district_name} district"},
+        },
+    }
+    if previous is not None:
+        doc["references"] = f"{cfg.sender},{previous.id},{_time(previous.issued_at)}"
+
+    ET.register_namespace("", CAP_NS)
+    alert = ET.Element(f"{{{CAP_NS}}}alert")
+    for key in ("identifier", "sender", "sent", "status", "msgType", "scope", "note", "references"):
+        if key in doc:
+            _add(alert, key, doc[key])
+    info = _add(alert, "info")
+    for key, value in doc["info"].items():
+        if key != "area":
+            _add(info, key, value)
+    area = _add(info, "area")
+    _add(area, "areaDesc", doc["info"]["area"]["areaDesc"])
+    if region is not None:
+        for ring in rings(region.geometry):
+            _add(area, "polygon", " ".join(f"{lat:.4f},{lon:.4f}" for lon, lat in _decimate(ring)))
+    return ET.tostring(alert, encoding="unicode", xml_declaration=True), doc
 
 
 def atom_feed(warnings: list[Warning], cfg: CapSettings, base_url: str, updated: datetime) -> str:

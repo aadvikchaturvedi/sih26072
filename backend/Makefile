@@ -31,10 +31,6 @@ format:
 serve:
 	$(PY) -m nowcast_backend.cli serve
 
-# Replays one archived event through the full chain (ingest -> forecast -> cells -> warnings),
-# one frame every 5 s. Defaults use the outputs of `make e2e` in ../ml.
-MODEL ?= ../ml/runs/e2e/artifacts/nowcast/latest
-EVENT ?= ../ml/runs/e2e/events/synth_00000.zarr
+# The whole backend on dummy data (first run trains a small model on synthetic storms, ~2 min).
 demo:
-	NOWCAST_MODEL_PATH=$(MODEL) NOWCAST_SOURCE=replay NOWCAST_SOURCE_PATH=$(EVENT) \
-	NOWCAST_CLOCK=data NOWCAST_POLL_SECONDS=5 NOWCAST_DATA_DIR=var/demo $(PY) -m nowcast_backend.cli serve
+	$(PY) -m nowcast_backend.cli demo

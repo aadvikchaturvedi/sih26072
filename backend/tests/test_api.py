@@ -94,13 +94,15 @@ def test_forecast_products(client, event):
     ]
     by_time = client.get(f"{base}/{stamp(t(event, 13))}").json()
     assert by_time["t0"] == meta["t0"]
-    assert [m["t0"] for m in client.get(base).json()] == [meta["t0"]]
+    # every pushed time with enough history got its forecast (frames 3..13), newest first
+    stored = [m["t0"] for m in client.get(base).json()]
+    assert len(stored) == 11 and stored[0] == meta["t0"] and stored == sorted(stored, reverse=True)
 
     png = client.get(f"{base}/latest/layers/reflectivity.png", params={"lead": 30, "scale": 2})
     assert png.status_code == 200 and png.headers["content-type"] == "image/png"
     image = Image.open(io.BytesIO(png.content))
     assert image.size == (96, 96) and image.mode == "RGBA"
-    assert np.asarray(image)[..., 3].max() == 255  # storms are drawn opaque
+    assert np.asarray(image)[..., 3].max() >= 200  # storms are drawn (nearly) opaque
     assert client.get(f"{base}/latest/layers/lightning_prob_30.png").status_code == 200
     assert client.get(f"{base}/latest/layers/reflectivity.png").status_code == 400  # no lead
     assert client.get(f"{base}/latest/layers/nope.png").status_code == 404

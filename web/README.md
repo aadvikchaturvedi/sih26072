@@ -1,35 +1,27 @@
-# React + TypeScript + Vite
+# Nowcast Console (web)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Operator console for the thunderstorm and lightning nowcasting system: map with observed and
+forecast radar, lightning, storm-cell tracks and district warnings; warnings feed with CAP
+export; skill page; system status.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # type-check + production build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Data source
+
+All data goes through one interface, `src/data/DataSource.ts`, chosen by `VITE_DATA_SOURCE`
+in `.env`:
+
+- `api` (default): the FastAPI backend in `../backend` (`/api/v1/console`). Start it with
+  `make demo` in the repository root or in `../backend`. The replay timeline and the map
+  extent come from the backend (`GET /timeline`), and a websocket (`/live`) announces new
+  forecasts, on which the console extends the timeline and refetches.
+- `mock`: the procedural scenario in `src/data/mock`, no backend needed.
+
+Response shapes are defined in `src/data/types.ts` and validated in `src/data/schemas.ts`.
 
 ## Note on Boundaries
 The district boundaries used in this demo are sourced from community GeoJSON for presentation purposes. In production, these should be replaced by official Survey of India / IMD shapefiles.

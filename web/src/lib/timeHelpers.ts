@@ -7,30 +7,30 @@ import { addMinutes as dfnAddMinutes } from 'date-fns';
 
 export const IST_OFFSET_MIN = 330; // UTC+5:30
 
-export function toIST(utcIso: string): Date {
+/**
+ * A Date whose local fields (as read by date-fns `format`) show the wall-clock time
+ * of `tz` for the given UTC instant, whatever time zone the browser itself is in.
+ */
+function wallClock(utcIso: string, tz: 'UTC' | 'IST'): Date {
   const utc = parseISO(utcIso);
-  return dfnAddMinutes(utc, IST_OFFSET_MIN);
+  const zoneOffsetMin = tz === 'IST' ? IST_OFFSET_MIN : 0;
+  return dfnAddMinutes(utc, zoneOffsetMin + utc.getTimezoneOffset());
+}
+
+export function toIST(utcIso: string): Date {
+  return wallClock(utcIso, 'IST');
 }
 
 export function formatTime(utcIso: string, tz: 'UTC' | 'IST'): string {
-  if (tz === 'IST') {
-    return format(toIST(utcIso), 'HH:mm') + ' IST';
-  }
-  return format(parseISO(utcIso), 'HH:mm') + ' UTC';
+  return `${format(wallClock(utcIso, tz), 'HH:mm')} ${tz}`;
 }
 
 export function formatDateTime(utcIso: string, tz: 'UTC' | 'IST'): string {
-  if (tz === 'IST') {
-    return format(toIST(utcIso), 'dd MMM HH:mm') + ' IST';
-  }
-  return format(parseISO(utcIso), 'dd MMM HH:mm') + ' UTC';
+  return `${format(wallClock(utcIso, tz), 'dd MMM HH:mm')} ${tz}`;
 }
 
 export function formatFullDateTime(utcIso: string, tz: 'UTC' | 'IST'): string {
-  if (tz === 'IST') {
-    return format(toIST(utcIso), 'yyyy-MM-dd HH:mm:ss') + ' IST';
-  }
-  return format(parseISO(utcIso), 'yyyy-MM-dd HH:mm:ss') + ' UTC';
+  return `${format(wallClock(utcIso, tz), 'yyyy-MM-dd HH:mm:ss')} ${tz}`;
 }
 
 export function frameToUtcIso(baseT0Utc: string, frame: number, stepMin = 10): string {

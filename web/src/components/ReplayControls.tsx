@@ -5,7 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronsRight } from 'lucide-react';
 import { useUIStore } from '@/store/uiStore';
-import { NUM_FRAMES } from '@/data/mock/scenario';
+import { getTimeline, useTimeline } from '@/data/timeline';
 import type { ReplaySpeed } from '@/store/uiStore';
 
 const SPEEDS: ReplaySpeed[] = [1, 2, 4, 8];
@@ -18,6 +18,7 @@ export function ReplayControls() {
     replaySpeed, setReplaySpeed,
   } = useUIStore();
 
+  const numFrames = useTimeline().times.length;
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function ReplayControls() {
       const ms = baseInterval / replaySpeed;
       intervalRef.current = setInterval(() => {
         setReplayFrame(
-          useUIStore.getState().replayFrame < NUM_FRAMES - 1
+          useUIStore.getState().replayFrame < getTimeline().times.length - 1
             ? useUIStore.getState().replayFrame + 1
             : 0,
         );
@@ -73,7 +74,7 @@ export function ReplayControls() {
       {/* Step back */}
       <button
         id="replay-step-back"
-        onClick={() => stepFrame(-1, NUM_FRAMES)}
+        onClick={() => stepFrame(-1, numFrames)}
         className={btnClass}
         style={btnStyle}
         aria-label="Step back one frame"
@@ -101,7 +102,7 @@ export function ReplayControls() {
       {/* Step forward */}
       <button
         id="replay-step-forward"
-        onClick={() => stepFrame(1, NUM_FRAMES)}
+        onClick={() => stepFrame(1, numFrames)}
         className={btnClass}
         style={btnStyle}
         aria-label="Step forward one frame"

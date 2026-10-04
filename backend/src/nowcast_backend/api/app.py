@@ -11,15 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from nowcast_backend import __version__
-from nowcast_backend.api.routes import domains, forecasts, system, warnings
+from nowcast_backend.api.deps import API_PREFIX
+from nowcast_backend.api.routes import console, domains, forecasts, system, warnings
 from nowcast_backend.container import build_container
 from nowcast_backend.domain.errors import BackendError
 from nowcast_backend.ports import ForecastEngine
 from nowcast_backend.settings import Settings
 
 log = logging.getLogger(__name__)
-
-API_PREFIX = "/api/v1"
 
 
 def _error(status: int, code: str, message: str, problems: list | None = None) -> JSONResponse:
@@ -74,6 +73,6 @@ def create_app(settings: Settings | None = None, engine: ForecastEngine | None =
         problems = [f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors()]
         return _error(400, "invalid_request", "invalid request parameters", problems)
 
-    for module in (system, domains, forecasts, warnings):
+    for module in (system, domains, forecasts, warnings, console):
         app.include_router(module.router, prefix=API_PREFIX)
     return app

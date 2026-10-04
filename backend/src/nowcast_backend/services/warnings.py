@@ -18,16 +18,10 @@ from nowcast_backend.domain.grid import Grid
 from nowcast_backend.domain.models import LEVELS, Warning
 from nowcast_backend.domain.timeutil import aware_utc, stamp
 from nowcast_backend.ports import WarningRepository
+from nowcast_backend.services.cap import INSTRUCTIONS
 from nowcast_backend.services.geo import bboxes_intersect, mask_polygon
 from nowcast_backend.settings import WarningSettings
 
-_INSTRUCTIONS = {
-    "yellow": "Be aware. Keep watching for updates and plan to move indoors if the sky darkens.",
-    "orange": "Be prepared. Finish or postpone outdoor work; stay away from open fields, "
-    "tall trees and water.",
-    "red": "Take action now. Go inside a solid building or a hard-top vehicle and stay there; "
-    "unplug sensitive equipment and keep away from windows.",
-}
 _HAZARD_NAME = {"lightning": "Lightning", "thunderstorm": "Thunderstorm"}
 
 
@@ -120,7 +114,7 @@ def derive(
                     headline=f"{level.capitalize()} warning: {_HAZARD_NAME[hazard].lower()} "
                     f"until {expires:%H:%M} UTC",
                     description=f"{what} over about {km2:.0f} km² ({detail}).{degraded}",
-                    instruction=_INSTRUCTIONS[level],
+                    instruction=INSTRUCTIONS[level],
                     peak_value=round(peak, 3),
                     peak_unit=unit,
                     first_flash=new_storm,

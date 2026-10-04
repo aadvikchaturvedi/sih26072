@@ -85,7 +85,7 @@ export function StatusPage() {
               <div className="font-bold text-sm" style={{ color: '#EAB308' }}>SATELLITE-ONLY MODE ACTIVE</div>
               <div className="text-xs text-muted mt-0.5">
                 Radar feed missing. Model running with satellite, lightning, and NWP inputs only.
-                Reflectivity forecasts not available. Lightning probabilities derived from satellite TIR + NWP.
+                Reflectivity is estimated without radar and is less precise.
               </div>
             </div>
           </div>
@@ -122,7 +122,7 @@ export function StatusPage() {
             </div>
             <div>
               <div className="label">Inference time</div>
-              <div className="mono mt-0.5">{health?.inferenceMsLast != null ? `${health.inferenceMsLast} ms` : '—'}</div>
+              <div className="mono mt-0.5">{health?.inferenceMsLast != null ? `${Math.round(health.inferenceMsLast)} ms` : '—'}</div>
             </div>
             {health?.missingChannels && health.missingChannels.length > 0 && (
               <div className="col-span-2">

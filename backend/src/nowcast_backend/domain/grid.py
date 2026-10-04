@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 from scipy.ndimage import map_coordinates
@@ -59,6 +60,21 @@ class Grid:
         lat = map_coordinates(self.lat, coords, order=1, mode="nearest")
         lon = map_coordinates(self.lon, coords, order=1, mode="nearest")
         return lat, lon
+
+    @cached_property
+    def _to_pixel(self) -> np.ndarray:
+        """Least-squares affine map (lat, lon, 1) -> (row, col); exact on regular grids."""
+        H, W = self.shape
+        rows, cols = np.mgrid[0:H, 0:W]
+        design = np.column_stack([self.lat.ravel(), self.lon.ravel(), np.ones(H * W)])
+        target = np.column_stack([rows.ravel(), cols.ravel()])
+        return np.linalg.lstsq(design, target, rcond=None)[0]
+
+    def pixel_of(self, lat, lon) -> tuple[np.ndarray, np.ndarray]:
+        """Fractional (row, col) of points; may fall outside the grid."""
+        lat, lon = np.atleast_1d(lat).astype(np.float64), np.atleast_1d(lon).astype(np.float64)
+        px = np.column_stack([lat, lon, np.ones(len(lat))]) @ self._to_pixel
+        return px[:, 0], px[:, 1]
 
     def contains_px(self, iy: float, ix: float) -> bool:
         H, W = self.shape

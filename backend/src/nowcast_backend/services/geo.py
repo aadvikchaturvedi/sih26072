@@ -37,6 +37,11 @@ def mask_polygon(mask: np.ndarray, grid: Grid, simplify_px: float = 0.5) -> dict
     return {"type": "MultiPolygon", "coordinates": polygons}
 
 
+def polygons(geometry: dict) -> list[list[list[list[float]]]]:
+    """The polygons of a Polygon / MultiPolygon geometry, each a list of rings."""
+    return [geometry["coordinates"]] if geometry["type"] == "Polygon" else geometry["coordinates"]
+
+
 def rings(geometry: dict) -> list[list[list[float]]]:
     """Exterior rings of a Polygon / MultiPolygon geometry."""
     if geometry["type"] == "Polygon":

@@ -199,6 +199,16 @@ class RollingObservationStore:
                 raise NotFound(f"domain {domain!r} has no observation frame at {t0} UTC")
             return self._dataset(domain, buf, t0 - (n_frames - 1) * self._step, t0)
 
+    def flashes(self, domain: str, start: pd.Timestamp, stop: pd.Timestamp):
+        with self._lock:
+            buf = self._buffer(domain)
+            if buf.flashes is None:
+                empty = np.array([], dtype=np.float64)
+                return np.array([], dtype="datetime64[ns]"), empty, empty
+            t, lat, lon = buf.flashes
+            keep = (t > np.datetime64(naive_utc(start))) & (t <= np.datetime64(naive_utc(stop)))
+            return t[keep], lat[keep], lon[keep]
+
     def frame(self, domain: str, time: pd.Timestamp, channel: str) -> np.ndarray:
         """(H, W) float32 field with NaN where the channel's group is missing."""
         with self._lock:

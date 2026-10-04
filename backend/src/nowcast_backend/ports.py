@@ -18,7 +18,7 @@ from nowcast_backend.domain.models import (
     Event,
     ForecastMeta,
     ModelDescription,
-    StormCell,
+    Region,
     Warning,
 )
 
@@ -56,9 +56,13 @@ class ObservationStore(Protocol):
 
     def frame(self, domain: str, time: pd.Timestamp, channel: str): ...
 
+    def flashes(self, domain: str, start: pd.Timestamp, stop: pd.Timestamp):
+        """Flash points in ``(start, stop]`` as (time, lat, lon) arrays."""
+
 
 class ForecastStore(Protocol):
-    def save(self, meta: ForecastMeta, forecast: xr.Dataset, cells: list[StormCell]) -> None: ...
+    def save(self, meta: ForecastMeta, forecast: xr.Dataset, products: dict[str, list]) -> None:
+        """``products`` are named JSON documents derived from the forecast (cells, districts)."""
 
     def exists(self, domain: str, t0: pd.Timestamp, source: str) -> bool: ...
 
@@ -66,7 +70,8 @@ class ForecastStore(Protocol):
 
     def dataset(self, domain: str, t0: pd.Timestamp, source: str) -> xr.Dataset: ...
 
-    def cells(self, domain: str, t0: pd.Timestamp, source: str) -> list[StormCell]: ...
+    def product(self, domain: str, t0: pd.Timestamp, source: str, name: str) -> list:
+        """A stored product as plain JSON data (empty if the forecast has none by that name)."""
 
     def times(self, domain: str, source: str) -> list[pd.Timestamp]:
         """Stored forecast times, oldest first."""
@@ -85,6 +90,15 @@ class WarningRepository(Protocol):
         self, domain: str | None = None, status: str | None = None, limit: int = 200
     ) -> list[Warning]:
         """Newest first."""
+
+
+class RegionProvider(Protocol):
+    def regions(self) -> list[Region]: ...
+
+
+class EvaluationSource(Protocol):
+    def metrics(self) -> dict | None:
+        """The latest ``nowcast-eval`` metrics, or None if the model was never evaluated."""
 
 
 class Notifier(Protocol):

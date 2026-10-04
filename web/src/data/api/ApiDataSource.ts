@@ -12,11 +12,13 @@ import type {
 import {
   ForecastResponseSchema, CellSchema, WarningSchema, SkillReportSchema,
   HealthStatusSchema, LiveTickSchema, LightningStrokeSchema, DistrictForecastSchema,
+  TimelineSchema,
 } from '../schemas';
+import type { Timeline } from '../timeline';
 import { z } from 'zod';
 
-const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/live';
+const BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1/console';
+const WS_URL = import.meta.env.VITE_WS_URL ?? `${BASE.replace(/^http/, 'ws')}/live`;
 
 async function fetchJson<T>(schema: z.ZodSchema<T>, url: string): Promise<T> {
   const res = await fetch(url);
@@ -26,6 +28,12 @@ async function fetchJson<T>(schema: z.ZodSchema<T>, url: string): Promise<T> {
 }
 
 export class ApiDataSource implements DataSource {
+  readonly live = true;
+
+  async getTimeline(): Promise<Timeline> {
+    return fetchJson(TimelineSchema, `${BASE}/timeline`);
+  }
+
   getObservedRadarUrl(t: string): string {
     return `${BASE}/radar/${encodeURIComponent(t)}`;
   }
@@ -68,6 +76,7 @@ export class ApiDataSource implements DataSource {
   subscribe(onTick: (msg: LiveTick) => void): () => void {
     let ws: WebSocket | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
 
     const connect = () => {
       ws = new WebSocket(WS_URL);
@@ -81,13 +90,14 @@ export class ApiDataSource implements DataSource {
         }
       };
       ws.onclose = () => {
-        reconnectTimeout = setTimeout(connect, 3000);
+        if (!closed) reconnectTimeout = setTimeout(connect, 3000);
       };
     };
 
     connect();
 
     return () => {
+      closed = true;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       ws?.close();
     };

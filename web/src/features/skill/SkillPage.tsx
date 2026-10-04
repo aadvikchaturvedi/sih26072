@@ -53,7 +53,7 @@ function MetricsTable({ models }: { models: ModelSkill[] }) {
     const rows = models.map((m) =>
       cols.map((c) => {
         const v = m[c as keyof ModelSkill];
-        return typeof v === 'number' ? v.toFixed(3) : String(v);
+        return typeof v === 'number' ? v.toFixed(3) : v == null ? '' : String(v);
       }).join(',')
     );
     const csv = [header, ...rows].join('\n');
@@ -123,7 +123,7 @@ function MetricsTable({ models }: { models: ModelSkill[] }) {
                         </div>
                       ) : isNum ? (
                         (v as number).toFixed(3)
-                      ) : String(v)}
+                      ) : v == null ? '—' : String(v)}
                     </td>
                   );
                 })}
@@ -161,7 +161,8 @@ export function SkillPage() {
   });
 
   // Reliability diagram data (use F3F4)
-  const f3f4 = skill.models.find((m) => m.modelId === 'F3F4')!;
+  const f3f4 = skill.models.find((m) => m.modelId === 'F3F4') ?? skill.models[skill.models.length - 1];
+  const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(0)}%`);
   const reliabilityData = f3f4.reliabilityDiagram.map((p) => ({
     forecast: p.forecastProb,
     observed: p.observedFreq,
@@ -176,26 +177,37 @@ export function SkillPage() {
       {/* Headline cards */}
       <div>
         <h1 className="text-base font-bold mb-3">Forecast Skill — {skill.eventLabel}</h1>
+        {skill.synthetic && (
+          <div
+            className="text-xs p-3 rounded mb-3"
+            style={{ background: '#EAB30818', border: '1px solid #EAB30840', color: '#EAB308' }}
+            role="note"
+          >
+            These scores were computed on synthetic storms because no real training or
+            verification data is available yet. They show that the pipeline works, not how
+            well the model forecasts real weather.
+          </div>
+        )}
         <div className="flex gap-3 flex-wrap">
           <HeadlineCard
             label="MEDIAN 1ST-FLASH LEAD TIME"
-            value={skill.medianFirstFlashLeadMin}
+            value={skill.medianFirstFlashLeadMin ?? '—'}
             unit="min"
             sub="F3 + F4 (lightning head)"
           />
           <HeadlineCard
             label="FIRST-FLASH HIT RATE"
-            value={`${(f3f4.firstFlashHitRate * 100).toFixed(0)}%`}
+            value={pct(f3f4.firstFlashHitRate)}
             sub="F3 + F4"
           />
           <HeadlineCard
             label="FIRST-FLASH FAR"
-            value={`${(f3f4.firstFlashFAR * 100).toFixed(0)}%`}
+            value={pct(f3f4.firstFlashFAR)}
             sub="F3 + F4"
           />
           <HeadlineCard
             label="ROC-AUC (BEST)"
-            value={f3f4.rocAuc.toFixed(2)}
+            value={f3f4.rocAuc?.toFixed(2) ?? '—'}
             sub="F3 + F4"
           />
         </div>

@@ -100,8 +100,8 @@ export const LightningStrokeSchema = z.object({
   time: z.string(),
   lat: z.number(),
   lon: z.number(),
-  polarity: z.enum(['positive', 'negative']),
-  peakCurrentKA: z.number(),
+  polarity: z.enum(['positive', 'negative']).optional(),
+  peakCurrentKA: z.number().optional(),
   cellId: z.string().nullable(),
 });
 
@@ -148,22 +148,29 @@ export const ModelSkillSchema = z.object({
     observedFreq: z.number(),
     count: z.number(),
   })),
-  brierSkillScore: z.number(),
-  rocAuc: z.number(),
-  pod: z.number(),
-  far: z.number(),
-  firstFlashHitRate: z.number(),
-  firstFlashFAR: z.number(),
-  medianFirstFlashLeadMin: z.number(),
+  brierSkillScore: z.number().nullable(),
+  rocAuc: z.number().nullable(),
+  pod: z.number().nullable(),
+  far: z.number().nullable(),
+  firstFlashHitRate: z.number().nullable(),
+  firstFlashFAR: z.number().nullable(),
+  medianFirstFlashLeadMin: z.number().nullable(),
 });
 
 export const SkillReportSchema = z.object({
   reportAt: z.string(),
-  medianFirstFlashLeadMin: z.number(),
+  medianFirstFlashLeadMin: z.number().nullable(),
   models: z.array(ModelSkillSchema),
   eventLabel: z.string(),
-  eventStartAt: z.string(),
-  eventEndAt: z.string(),
+  eventStartAt: z.string().nullable(),
+  eventEndAt: z.string().nullable(),
+  synthetic: z.boolean().optional(),
+});
+
+export const TimelineSchema = z.object({
+  times: z.array(z.string()).min(1),
+  stepMin: z.number(),
+  bbox: z.object({ west: z.number(), east: z.number(), south: z.number(), north: z.number() }),
 });
 
 export const LiveTickSchema = z.object({

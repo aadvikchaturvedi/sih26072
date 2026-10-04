@@ -5,7 +5,7 @@
  */
 import React, { useCallback } from 'react';
 import { useUIStore } from '@/store/uiStore';
-import { STEP_MIN, SCENARIO_T0_UTC } from '@/data/mock/scenario';
+import { frameT0, useTimeline } from '@/data/timeline';
 import { formatTime } from '@/lib/timeHelpers';
 import { addMinutes, parseISO } from 'date-fns';
 
@@ -21,7 +21,7 @@ export function TimeSlider() {
   const { replayFrame, selectedLead, setSelectedLead, timezone } = useUIStore();
   
   // The actual reference t0 for the current frame
-  const t0 = addMinutes(parseISO(SCENARIO_T0_UTC), replayFrame * STEP_MIN);
+  const t0 = parseISO(frameT0(replayFrame, useTimeline()));
 
   const handleKey = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {

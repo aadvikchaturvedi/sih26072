@@ -17,6 +17,8 @@ import { SkillPage } from '@/features/skill/SkillPage';
 import { StatusPage } from '@/features/status/StatusPage';
 import { useUIStore } from '@/store/uiStore';
 import { getDataSource } from '@/data/dataSourceFactory';
+import { setTimeline } from '@/data/timeline';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { DistrictWarningDrawer } from '@/features/warnings/DistrictWarningDrawer';
 
@@ -41,10 +43,55 @@ function MapView() {
 export function App() {
   const { screen } = useUIStore();
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    getDataSource().then(() => setReady(true));
-  }, []);
+    let unsubscribe = () => {};
+    let cancelled = false;
+    getDataSource()
+      .then((ds) => {
+        if (cancelled) return;
+        setReady(true);
+        if (!ds.live) return;
+        // A new forecast arrived: extend the timeline and refetch what is on screen.
+        unsubscribe = ds.subscribe(() => {
+          ds.getTimeline().then(setTimeline).catch(() => {});
+          queryClient.invalidateQueries();
+        });
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [queryClient]);
+
+  if (error) {
+    return (
+      <div
+        className="flex items-center justify-center h-full"
+        style={{ background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+        role="alert"
+      >
+        <div className="flex flex-col items-center gap-2 text-center" style={{ maxWidth: 460 }}>
+          <span className="font-bold">Cannot reach the nowcast backend</span>
+          <span className="text-muted text-xs">{error}</span>
+          <span className="text-muted text-xs">
+            Start it with <code>make demo</code> in the repository root, or set
+            VITE_DATA_SOURCE=mock in web/.env to use the built-in mock scenario.
+          </span>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-3 py-1 rounded text-xs mt-2"
+            style={{ background: 'var(--raised)', border: '1px solid var(--border)', color: 'var(--text)' }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!ready) {
     return (

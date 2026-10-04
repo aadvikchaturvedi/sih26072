@@ -2,7 +2,7 @@
 
     <root>/<domain>/<YYYYmmddTHHMMZ>/<source>/forecast.zarr   output-contract Dataset
                                               meta.json       ForecastMeta
-                                              cells.json      storm cells
+                                              <name>.json     derived products (cells, ...)
 
 ``meta.json`` is written last, so a directory with it is complete.
 """
@@ -19,7 +19,7 @@ import pandas as pd
 import xarray as xr
 
 from nowcast_backend.domain.errors import NotFound
-from nowcast_backend.domain.models import ForecastMeta, StormCell
+from nowcast_backend.domain.models import ForecastMeta
 from nowcast_backend.domain.timeutil import naive_utc, stamp
 
 
@@ -40,12 +40,13 @@ class ZarrForecastStore:
             raise NotFound(f"no {source} forecast for domain {domain!r} at {naive_utc(t0)} UTC")
         return d
 
-    def save(self, meta: ForecastMeta, forecast: xr.Dataset, cells: list[StormCell]) -> None:
+    def save(self, meta: ForecastMeta, forecast: xr.Dataset, products: dict[str, list]) -> None:
         d = self._dir(meta.domain, meta.t0, meta.source)
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
         forecast.to_zarr(str(d / "forecast.zarr"), mode="w", consolidated=True)
-        (d / "cells.json").write_text(json.dumps([c.model_dump(mode="json") for c in cells]))
+        for name, items in products.items():
+            (d / f"{name}.json").write_text(json.dumps([i.model_dump(mode="json") for i in items]))
         (d / "meta.json").write_text(meta.model_dump_json())
         with self._lock:
             self._cache[d] = forecast
@@ -60,9 +61,9 @@ class ZarrForecastStore:
         d = self._require(domain, t0, source)
         return ForecastMeta.model_validate_json((d / "meta.json").read_text())
 
-    def cells(self, domain: str, t0: pd.Timestamp, source: str) -> list[StormCell]:
-        d = self._require(domain, t0, source)
-        return [StormCell.model_validate(c) for c in json.loads((d / "cells.json").read_text())]
+    def product(self, domain: str, t0: pd.Timestamp, source: str, name: str) -> list:
+        path = self._require(domain, t0, source) / f"{name}.json"
+        return json.loads(path.read_text()) if path.exists() else []
 
     def dataset(self, domain: str, t0: pd.Timestamp, source: str) -> xr.Dataset:
         d = self._require(domain, t0, source)

@@ -20,7 +20,9 @@ import {
   NUM_FRAMES,
   RADAR_DEGRADED_FRAME,
   ODISHA_DISTRICTS,
+  DOMAIN_BBOX,
 } from './scenario';
+import type { Timeline } from '../timeline';
 import {
   getRadarFrameUrl,
   getLightningProbUrl,
@@ -148,6 +150,16 @@ function generateLightningStrokes(frame: number): LightningStroke[] {
 }
 
 export class MockDataSource implements DataSource {
+  readonly live = false;
+
+  async getTimeline(): Promise<Timeline> {
+    return {
+      times: Array.from({ length: NUM_FRAMES }, (_, frame) => frameToT0(frame)),
+      stepMin: STEP_MIN,
+      bbox: { ...DOMAIN_BBOX },
+    };
+  }
+
   getObservedRadarUrl(t: string): string {
     const frame = getFrameFromT0(t);
     const clampedFrame = Math.max(0, Math.min(NUM_FRAMES - 1, frame));

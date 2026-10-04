@@ -13,7 +13,7 @@ class CellSettings(BaseModel):
     threshold_dbz: float = 35.0
     min_area_km2: float = 20.0
     max_speed_kmh: float = 100.0
-    track_minutes: int = 60  # length of the extrapolated track
+    track_minutes: int = 120  # length of the extrapolated track
     trend_dbz: float = 3.0  # change at +30 min that counts as growing / decaying
 
 
@@ -25,6 +25,20 @@ class WarningSettings(BaseModel):
     thunderstorm_horizon_min: int = 60
     buffer_km: float = 4.0  # warning polygons are grown by this margin
     min_area_km2: float = 40.0
+
+
+class DistrictSettings(BaseModel):
+    """Draft district rules (looking one hour ahead), as agreed with the console:
+    yellow = probability >= ``prob_yellow`` or MAX-Z >= ``dbz_yellow``;
+    orange = probability > ``prob_orange`` or a lightning jump in an approaching cell;
+    red = orange plus MAX-Z >= ``dbz_red`` or a first-flash flag."""
+
+    prob_yellow: float = 0.3
+    prob_orange: float = 0.6
+    dbz_yellow: float = 40.0
+    dbz_red: float = 50.0
+    area_threshold_dbz: float = 35.0
+    valid_minutes: int = 60
 
 
 class CapSettings(BaseModel):
@@ -55,6 +69,8 @@ class Settings(BaseSettings):
     forecast_retention: int = Field(144, ge=1)  # forecast times kept per domain (24 h)
     #: Real (not gap-filled) frames required among the model's input frames.
     min_observed_frames: int = Field(4, ge=1)
+    #: Share of the domain an input group must cover to count as received.
+    min_group_coverage: float = 0.05
 
     # --- HTTP
     host: str = "127.0.0.1"
@@ -69,6 +85,8 @@ class Settings(BaseSettings):
     source: Literal["none", "watch", "replay"] = "none"
     source_path: Path | None = None  # watch: dir of <domain>.zarr; replay: one event store
     replay_domain: str = "demo"
+    #: Frames the replay delivers at once on its first poll (the rest follow one per poll).
+    replay_initial_frames: int | None = None
     poll_seconds: float = Field(30.0, gt=0)
     #: ``wall`` = warnings expire by the system clock; ``data`` = by the latest observation
     #: time of the domain (for replaying archived events).
@@ -78,5 +96,9 @@ class Settings(BaseSettings):
     cells: CellSettings = Field(default_factory=CellSettings)
     warnings: WarningSettings = Field(default_factory=WarningSettings)
     cap: CapSettings = Field(default_factory=CapSettings)
+    districts: DistrictSettings = Field(default_factory=DistrictSettings)
+    regions_path: Path | None = None  # GeoJSON of districts (features with ``id`` and ``name``)
+    skill_report_path: Path | None = None  # ``metrics.json`` written by nowcast-eval
+    console_domain: str = "odisha"  # the domain the operator console shows
     webhook_url: str | None = None  # POSTed a JSON event when warnings change
     public_url: str = "http://127.0.0.1:8000"  # used for links in the CAP feed
