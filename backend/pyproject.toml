@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nowcast_backend"
+version = "0.1.0"
+description = "Backend service for thunderstorm & lightning nowcasting (SIH 2026, PS 26072)"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "nowcast_ml",  # sibling package: pip install -e ../ml
+    "fastapi==0.142.2",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "httpx==0.28.1",
+    "pillow==12.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "ruff==0.16.9"]
+
+[project.scripts]
+nowcast-backend = "nowcast_backend.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../ml/src"]
+addopts = "-q -m 'not slow'"
+markers = ["slow: trains a tiny model and runs the real Predictor"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning:lightning.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+ignore = ["E501", "B008"]
